@@ -1,7 +1,7 @@
 ---
-description:
-globs:
-alwaysApply: false
+description: 
+globs: 
+alwaysApply: true
 ---
 # Adjourn – Supabase General Project UX & Reliability Rules (2024-12)
 

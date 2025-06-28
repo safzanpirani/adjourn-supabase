@@ -5,20 +5,15 @@ export { useAuth } from './useAuth'
 export { useTodayEntry } from './useTodayEntry'
 export { useStreaks } from './useStreaks'
 
+// Real database hooks - now implemented!
+export { useEntry } from './useEntry'
+export { useEntries, useEntriesForMonth } from './useEntries'
+
 // TODO: Implement these hooks when needed
-// export { useEntriesOptimized as useEntries } from './useEntriesOptimized'
 // export { useJournalsOptimized as useJournals } from './useJournalsOptimized'
 
 // Placeholder hooks for development (to be implemented when needed)
 import { useQuery } from '@tanstack/react-query'
-
-export const useEntries = (journalId?: string) => {
-  return useQuery({
-    queryKey: ['entries', journalId],
-    queryFn: () => Promise.resolve([]),
-    enabled: false, // Disable until needed
-  })
-}
 
 export const useJournals = () => {
   return useQuery({

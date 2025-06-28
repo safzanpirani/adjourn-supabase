@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Camera, Bold, Italic, List, Undo, Redo, Sparkles } from "lucide-react"
+import { Camera, Bold, Italic, List, Undo, Redo, Sparkles, ArrowLeft } from "lucide-react"
 import { PolaroidGallery } from "@/components/polaroid-gallery"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
@@ -11,12 +12,17 @@ import { VoiceRecorder } from "@/components/voice-recorder"
 import { NoteMenu } from "@/components/note-menu"
 import { AuthGuard } from "@/components/auth-guard"
 import { useTheme } from "@/components/theme-provider"
-import { useRouter } from "next/navigation"
-import { useTodayEntry } from "@/hooks/useOptimizedHooks"
+import { useEntry } from "@/hooks/useOptimizedHooks"
 
-function TodayPageContent() {
+function EntryPageContent() {
+  const params = useParams()
   const router = useRouter()
-  const { entry, updateEntry, createEntry, isUpdating, isLoading } = useTodayEntry()
+  const date = params?.date as string
+  
+  // Validate date format
+  const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
+  
+  const { entry, updateEntry, createEntry, isUpdating, isLoading } = useEntry(date)
   const [content, setContent] = useState("")
   const [wordCount, setWordCount] = useState(0)
   const [photos, setPhotos] = useState([
@@ -26,6 +32,14 @@ function TodayPageContent() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { fontSize } = useTheme()
+
+  // Redirect if invalid date
+  useEffect(() => {
+    if (!isValidDate) {
+      router.push('/today')
+      return
+    }
+  }, [date, isValidDate, router])
 
   // Initialize content when entry loads
   useEffect(() => {
@@ -69,15 +83,16 @@ function TodayPageContent() {
       "What moment made you smile?",
       "What's one thing you learned about yourself?",
     ]
-    // TODO: Use date-based seeding to ensure same prompt per day
-    return prompts[Math.floor(Math.random() * prompts.length)]
+    // Use date-based seeding for consistent prompts
+    const dateNum = new Date(date).getTime()
+    return prompts[Math.floor(dateNum % prompts.length)]
   }
 
   useEffect(() => {
     const words = content
       .trim()
       .split(/\s+/)
-      .filter((word) => word.length > 0)
+      .filter((word: string) => word.length > 0)
     setWordCount(words.length)
   }, [content])
 
@@ -88,8 +103,8 @@ function TodayPageContent() {
   }, [])
 
   const formatDate = () => {
-    const today = new Date()
-    return today.toLocaleDateString("en-US", {
+    const entryDate = new Date(date)
+    return entryDate.toLocaleDateString("en-US", {
       weekday: "long",
       year: "numeric",
       month: "long",
@@ -153,26 +168,50 @@ function TodayPageContent() {
     return "✓ Auto-saved"
   }
 
+  const handleBackNavigation = () => {
+    // If this is today's entry, go to /today, otherwise go to journals
+    const today = new Date().toISOString().split('T')[0]
+    if (date === today) {
+      router.push('/today')
+    } else {
+      router.push('/journals')
+    }
+  }
+
+  if (!isValidDate) {
+    return null // Will redirect
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
-        <DesktopSidebar currentPage="today" />
+        <DesktopSidebar currentPage="journals" />
         <div className="flex-1 flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-[var(--color-primary)]/30 border-t-[var(--color-primary)] rounded-full animate-spin" />
         </div>
-        <BottomNavigation currentPage="today" />
+        <BottomNavigation currentPage="journals" />
       </div>
     )
   }
 
   return (
     <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
-      <DesktopSidebar currentPage="today" />
+      <DesktopSidebar currentPage="journals" />
 
       <div className="flex-1 flex flex-col">
         {/* Header */}
         <header className="p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-700">
-          <h1 className="font-mono text-lg text-[var(--color-text)]">{formatDate()}</h1>
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleBackNavigation}
+              className="h-8 w-8"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <h1 className="font-mono text-lg text-[var(--color-text)]">{formatDate()}</h1>
+          </div>
           <div className="flex items-center gap-3">
             {/* Desktop formatting buttons */}
             <div className="hidden md:flex items-center gap-1">
@@ -213,7 +252,10 @@ function TodayPageContent() {
               <QuickMuse />
             </div>
 
-            <NoteMenu onCopy={handleCopyNote} onDelete={handleDeleteNote} />
+            <NoteMenu
+              onCopy={handleCopyNote}
+              onDelete={handleDeleteNote}
+            />
           </div>
         </header>
 
@@ -274,16 +316,16 @@ function TodayPageContent() {
         </div>
 
         {/* Bottom Navigation */}
-        <BottomNavigation currentPage="today" />
+        <BottomNavigation currentPage="journals" />
       </div>
     </div>
   )
 }
 
-export default function TodayPage() {
+export default function EntryPage() {
   return (
     <AuthGuard>
-      <TodayPageContent />
+      <EntryPageContent />
     </AuthGuard>
   )
-}
+} 

@@ -1,32 +1,22 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
+import { AuthGuard } from "@/components/auth-guard"
+import { useEntriesForMonth } from "@/hooks/useOptimizedHooks"
 
-interface DayEntry {
-  date: number
-  hasEntry: boolean
-  hasPhotos: boolean
-  wordCount?: number
-}
-
-export default function CalendarPage() {
+function CalendarPageContent() {
+  const router = useRouter()
   const [currentMonth, setCurrentMonth] = useState(new Date())
-
-  // Sample data - in a real app this would come from your database
-  const entries: DayEntry[] = [
-    { date: 1, hasEntry: true, hasPhotos: false, wordCount: 234 },
-    { date: 3, hasEntry: true, hasPhotos: true, wordCount: 456 },
-    { date: 7, hasEntry: true, hasPhotos: false, wordCount: 123 },
-    { date: 12, hasEntry: true, hasPhotos: true, wordCount: 789 },
-    { date: 15, hasEntry: true, hasPhotos: false, wordCount: 345 },
-    { date: 17, hasEntry: true, hasPhotos: true, wordCount: 567 }, // Today
-    { date: 20, hasEntry: true, hasPhotos: false, wordCount: 234 },
-    { date: 25, hasEntry: true, hasPhotos: true, wordCount: 678 },
-  ]
+  
+  const year = currentMonth.getFullYear()
+  const month = currentMonth.getMonth()
+  
+  const { data: entriesData = {}, isLoading } = useEntriesForMonth(year, month)
 
   const today = new Date().getDate()
   const monthName = currentMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })
@@ -46,13 +36,15 @@ export default function CalendarPage() {
 
     // Days of the month
     for (let day = 1; day <= daysInMonth; day++) {
-      const entry = entries.find((e) => e.date === day)
+      const dateStr = new Date(year, month, day).toISOString().split('T')[0]
+      const entryData = entriesData[dateStr]
+      
       days.push({
         date: day,
-        hasEntry: entry?.hasEntry || false,
-        hasPhotos: entry?.hasPhotos || false,
-        wordCount: entry?.wordCount,
-        isToday: day === today,
+        hasEntry: entryData?.hasEntry || false,
+        hasPhotos: entryData?.hasPhotos || false,
+        wordCount: entryData?.wordCount,
+        isToday: day === today && month === new Date().getMonth() && year === new Date().getFullYear(),
       })
     }
 
@@ -70,8 +62,25 @@ export default function CalendarPage() {
   }
 
   const handleDateClick = (date: number) => {
-    // In a real app, navigate to that date's entry
-    console.log(`Navigate to ${monthName} ${date}`)
+    // Format date as YYYY-MM-DD
+    const year = currentMonth.getFullYear()
+    const month = currentMonth.getMonth()
+    const dateStr = new Date(year, month, date).toISOString().split('T')[0]
+    
+    // Navigate to entry page
+    router.push(`/entry/${dateStr}`)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
+        <DesktopSidebar currentPage="calendar" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[var(--color-primary)]/30 border-t-[var(--color-primary)] rounded-full animate-spin" />
+        </div>
+        <BottomNavigation currentPage="calendar" />
+      </div>
+    )
   }
 
   return (
@@ -157,5 +166,13 @@ export default function CalendarPage() {
         <BottomNavigation currentPage="calendar" />
       </div>
     </div>
+  )
+}
+
+export default function CalendarPage() {
+  return (
+    <AuthGuard>
+      <CalendarPageContent />
+    </AuthGuard>
   )
 }

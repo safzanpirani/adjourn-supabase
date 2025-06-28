@@ -1,3 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
 # Protect Original Frontend
 
 **CRITICAL RULE: NEVER EDIT THE `old-frontend-only` DIRECTORY**

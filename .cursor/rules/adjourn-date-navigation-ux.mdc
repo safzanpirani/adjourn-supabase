@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # Adjourn – Date Navigation & Time-Zone UX Rules (2024-12)
 

@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # Adjourn - Updated Requirements & Critical Changes (2024-12)
 

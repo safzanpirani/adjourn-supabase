@@ -8,60 +8,21 @@ import { Search, Filter, Camera, Images } from "lucide-react"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { StreakDisplay } from "@/components/streak-display"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
+import { AuthGuard } from "@/components/auth-guard"
 import { useRouter } from "next/navigation"
+import { useEntries, useStreaks } from "@/hooks/useOptimizedHooks"
 
-interface JournalEntry {
-  id: number
-  date: string
-  preview: string
-  wordCount: number
-  hasPhotos: boolean
-  mood?: string
-}
-
-export default function JournalsPage() {
+function JournalsPageContent() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
-  const [currentStreak] = useState(17)
-
-  const entries: JournalEntry[] = [
-    {
-      id: 1,
-      date: "2024-12-17",
-      preview:
-        "Today was filled with unexpected moments of joy. The morning coffee tasted particularly good, and I found myself...",
-      wordCount: 567,
-      hasPhotos: true,
-      mood: "content",
-    },
-    {
-      id: 2,
-      date: "2024-12-16",
-      preview:
-        "Reflecting on the week that passed. There were challenges, but also growth. I learned something important about...",
-      wordCount: 423,
-      hasPhotos: false,
-      mood: "thoughtful",
-    },
-    {
-      id: 3,
-      date: "2024-12-15",
-      preview:
-        "A quiet Sunday. Sometimes the most peaceful days are the ones where nothing extraordinary happens, yet...",
-      wordCount: 234,
-      hasPhotos: true,
-      mood: "peaceful",
-    },
-    {
-      id: 4,
-      date: "2024-12-14",
-      preview:
-        "Had an interesting conversation with a friend today about dreams and aspirations. It made me think about...",
-      wordCount: 678,
-      hasPhotos: false,
-      mood: "inspired",
-    },
-  ]
+  
+  const { data: entriesResult, isLoading: entriesLoading } = useEntries({ 
+    searchQuery: searchQuery.trim() 
+  })
+  const { streaks: streaksData, isLoading: streaksLoading } = useStreaks()
+  
+  const entries = entriesResult?.entries || []
+  const currentStreak = streaksData?.current_streak || 0
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -72,19 +33,26 @@ export default function JournalsPage() {
     })
   }
 
-  const getMoodEmoji = (mood?: string) => {
+  const getMoodEmoji = (mood?: number) => {
+    // Map mood numbers to emojis (1-5 scale)
     switch (mood) {
-      case "content":
-        return "😌"
-      case "thoughtful":
-        return "🤔"
-      case "peaceful":
+      case 1:
+        return "😔"
+      case 2:
+        return "😐"
+      case 3:
         return "😊"
-      case "inspired":
-        return "✨"
+      case 4:
+        return "😄"
+      case 5:
+        return "🤩"
       default:
         return "📝"
     }
+  }
+
+  const handleEntryClick = (date: string) => {
+    router.push(`/entry/${date}`)
   }
 
   return (
@@ -143,34 +111,72 @@ export default function JournalsPage() {
 
         {/* Entries List */}
         <main className="flex-1 p-4 space-y-3 pb-20 md:pb-4">
-          {entries.map((entry) => (
-            <Card
-              key={entry.id}
-              className="border-0 shadow-sm bg-[var(--color-card-background)] hover:shadow-md transition-shadow cursor-pointer"
-            >
-              <CardContent className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-[var(--color-primary)]">{formatDate(entry.date)}</span>
-                    <span className="text-lg">{getMoodEmoji(entry.mood)}</span>
+          {entriesLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-6 h-6 border-2 border-[var(--color-primary)]/30 border-t-[var(--color-primary)] rounded-full animate-spin" />
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--color-accent)]/20 flex items-center justify-center">
+                <Search className="w-8 h-8 text-[var(--color-text-secondary)]" />
+              </div>
+              <h3 className="font-mono text-lg text-[var(--color-text)] mb-2">
+                {searchQuery ? 'No entries found' : 'No entries yet'}
+              </h3>
+              <p className="font-mono text-sm text-[var(--color-text-secondary)] mb-4">
+                {searchQuery 
+                  ? 'Try adjusting your search terms' 
+                  : 'Start your journaling journey by writing your first entry'
+                }
+              </p>
+              {!searchQuery && (
+                <Button 
+                  onClick={() => router.push('/today')}
+                  className="bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-white font-mono"
+                >
+                  Write Your First Entry
+                </Button>
+              )}
+            </div>
+          ) : (
+            entries.map((entry) => (
+              <Card
+                key={entry.id}
+                onClick={() => handleEntryClick(entry.date)}
+                className="border-0 shadow-sm bg-[var(--color-card-background)] hover:shadow-md transition-shadow cursor-pointer"
+              >
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm text-[var(--color-primary)]">{formatDate(entry.date)}</span>
+                      <span className="text-lg">{getMoodEmoji(entry.mood || undefined)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                      {entry.hasPhotos && <Camera className="w-3 h-3" />}
+                      <span className="font-mono">{entry.wordCount} words</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-                    {entry.hasPhotos && <Camera className="w-3 h-3" />}
-                    <span className="font-mono">{entry.wordCount} words</span>
-                  </div>
-                </div>
 
-                <p className="font-mono text-sm text-[var(--color-text)] leading-relaxed line-clamp-3">
-                  {entry.preview}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+                  <p className="font-mono text-sm text-[var(--color-text)] leading-relaxed line-clamp-3">
+                    {entry.preview}
+                  </p>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </main>
 
         {/* Bottom Navigation */}
         <BottomNavigation currentPage="journals" />
       </div>
     </div>
+  )
+}
+
+export default function JournalsPage() {
+  return (
+    <AuthGuard>
+      <JournalsPageContent />
+    </AuthGuard>
   )
 }
