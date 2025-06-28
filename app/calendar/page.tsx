@@ -36,7 +36,8 @@ function CalendarPageContent() {
 
     // Days of the month
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = new Date(year, month, day).toISOString().split('T')[0]
+      // Create date string without timezone issues
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       const entryData = entriesData[dateStr]
       
       days.push({
@@ -62,10 +63,10 @@ function CalendarPageContent() {
   }
 
   const handleDateClick = (date: number) => {
-    // Format date as YYYY-MM-DD
+    // Format date as YYYY-MM-DD without timezone issues
     const year = currentMonth.getFullYear()
     const month = currentMonth.getMonth()
-    const dateStr = new Date(year, month, date).toISOString().split('T')[0]
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`
     
     // Navigate to entry page
     router.push(`/entry/${dateStr}`)

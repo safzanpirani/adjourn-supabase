@@ -10,19 +10,41 @@ interface StreakDisplayProps {
 
 export function StreakDisplay({ currentStreak, maxStreak = 30 }: StreakDisplayProps) {
   const router = useRouter()
-  const [animatedStreak, setAnimatedStreak] = useState(0)
+  const [animatedStreak, setAnimatedStreak] = useState(currentStreak)
   const [showConfetti, setShowConfetti] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    // Check if animation has already played this session
+    const hasAnimated = sessionStorage.getItem('streak-animated')
+    const lastAnimatedStreak = sessionStorage.getItem('last-streak-value')
+    
+    if (!hasAnimated) {
+      // First time this session - animate from 0
+      setAnimatedStreak(0)
+      const timer = setTimeout(() => {
+        setAnimatedStreak(currentStreak)
+        if (currentStreak > 0 && currentStreak % 7 === 0) {
+          setShowConfetti(true)
+          setTimeout(() => setShowConfetti(false), 2000)
+        }
+        // Mark as animated for this session
+        sessionStorage.setItem('streak-animated', 'true')
+        sessionStorage.setItem('last-streak-value', currentStreak.toString())
+      }, 500)
+      return () => clearTimeout(timer)
+    } else if (lastAnimatedStreak && parseInt(lastAnimatedStreak) !== currentStreak) {
+      // Streak value changed during session - do a subtle update
       setAnimatedStreak(currentStreak)
       if (currentStreak > 0 && currentStreak % 7 === 0) {
         setShowConfetti(true)
         setTimeout(() => setShowConfetti(false), 2000)
       }
-    }, 500)
-    return () => clearTimeout(timer)
+      sessionStorage.setItem('last-streak-value', currentStreak.toString())
+    } else {
+      // Already animated this session and value hasn't changed - show final state immediately
+      setAnimatedStreak(currentStreak)
+    }
   }, [currentStreak])
 
   const circumference = 2 * Math.PI * 45

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Search, Plus, Book, Images, ChevronLeft, ChevronRight, Sparkles, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { StreakDisplay } from "./streak-display"
-import { useStreaks } from "@/hooks/useOptimizedHooks"
+import { useStreaks, useEntries, useEntriesForMonth } from "@/hooks/useOptimizedHooks"
 
 interface DesktopSidebarProps {
   currentPage?: string
@@ -18,13 +18,15 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
-  // Sample recent entries
-  const recentEntries = [
-    { id: 1, date: "Dec 17", preview: "Today was filled with unexpected moments...", hasPhotos: true },
-    { id: 2, date: "Dec 16", preview: "Reflecting on the week that passed...", hasPhotos: false },
-    { id: 3, date: "Dec 15", preview: "A quiet Sunday morning...", hasPhotos: true },
-    { id: 4, date: "Dec 14", preview: "Had an interesting conversation...", hasPhotos: false },
-  ]
+  // Get real recent entries data
+  const { data: entriesResult } = useEntries({ limit: 4 })
+  const recentEntries = entriesResult?.entries || []
+
+  // Get entries for current month
+  const { data: monthEntries = {} } = useEntriesForMonth(
+    currentMonth.getFullYear(),
+    currentMonth.getMonth()
+  )
 
   // Mini calendar data
   const getDaysInMonth = () => {
@@ -32,7 +34,7 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
     const month = currentMonth.getMonth()
     const firstDay = new Date(year, month, 1).getDay()
     const daysInMonth = new Date(year, month + 1, 0).getDate()
-    const today = new Date().getDate()
+    const today = new Date()
 
     const days = []
 
@@ -41,21 +43,35 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
       days.push(null)
     }
 
-    // Sample entry data
-    const entriesData = [1, 3, 7, 12, 15, 17, 20, 25]
-    const photosData = [3, 12, 15, 17, 25]
-
-    // Days of the month
+    // Days of the month with real data
     for (let day = 1; day <= daysInMonth; day++) {
+      // Create date string without timezone issues
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const entryData = monthEntries[dateStr]
+      
+      const isToday = day === today.getDate() && 
+                     month === today.getMonth() && 
+                     year === today.getFullYear()
+
       days.push({
         date: day,
-        hasEntry: entriesData.includes(day),
-        hasPhotos: photosData.includes(day),
-        isToday: day === today,
+        dateStr: dateStr,
+        hasEntry: entryData?.hasEntry || false,
+        hasPhotos: entryData?.hasPhotos || false,
+        isToday: isToday,
       })
     }
 
     return days
+  }
+
+  const handleDateClick = (dateStr: string) => {
+    router.push(`/entry/${dateStr}`)
+  }
+
+  const formatEntryDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   }
 
   const navigateMonth = (direction: "prev" | "next") => {
@@ -153,7 +169,12 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
       {/* Mini Calendar */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-mono text-sm font-medium text-[var(--color-text)]">{monthName}</h3>
+          <button 
+            onClick={() => router.push('/calendar')}
+            className="font-mono text-sm font-medium text-[var(--color-text)] hover:text-[var(--color-primary)] transition-colors"
+          >
+            {monthName}
+          </button>
           <div className="flex gap-1">
             <Button variant="ghost" size="icon" onClick={() => navigateMonth("prev")} className="h-6 w-6">
               <ChevronLeft className="w-3 h-3" />
@@ -175,7 +196,7 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
             <div key={index} className="aspect-square">
               {day && (
                 <button
-                  onClick={() => router.push(`/calendar`)}
+                  onClick={() => handleDateClick(day.dateStr)}
                   className={`
                   w-full h-full rounded text-xs font-mono relative transition-all duration-200
                   ${
@@ -214,19 +235,25 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
       <div className="flex-1 overflow-y-auto p-4">
         <h3 className="font-mono text-sm font-medium text-[var(--color-text)] mb-3">Recent Entries</h3>
         <div className="space-y-2">
-          {recentEntries.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => router.push(`/entry/${entry.id}`)}
-              className="w-full text-left p-2 rounded-lg hover:bg-[var(--color-card-background)] transition-colors"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-mono text-xs text-[var(--color-primary)]">{entry.date}</span>
-                {entry.hasPhotos && <Images className="w-3 h-3 text-yellow-500" />}
-              </div>
-              <p className="font-mono text-xs text-[var(--color-text)] line-clamp-2 leading-relaxed">{entry.preview}</p>
-            </button>
-          ))}
+          {recentEntries.length === 0 ? (
+            <div className="text-center py-4">
+              <p className="font-mono text-xs text-[var(--color-text-secondary)]">No entries yet</p>
+            </div>
+          ) : (
+            recentEntries.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => router.push(`/entry/${entry.date}`)}
+                className="w-full text-left p-2 rounded-lg hover:bg-[var(--color-card-background)] transition-colors"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-xs text-[var(--color-primary)]">{formatEntryDate(entry.date)}</span>
+                  {entry.hasPhotos && <Images className="w-3 h-3 text-yellow-500" />}
+                </div>
+                <p className="font-mono text-xs text-[var(--color-text)] line-clamp-2 leading-relaxed">{entry.preview}</p>
+              </button>
+            ))
+          )}
         </div>
       </div>
 
