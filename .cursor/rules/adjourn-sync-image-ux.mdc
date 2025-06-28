@@ -1,0 +1,405 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Adjourn – Supabase Smart Sync & Image Handling Best-Practices (2024-12)
+
+This rule complements the React-Query optimization and date-navigation rules. It targets **two critical UX pain-points**:
+
+1. **Egress Cost Control** – Only sync what's needed when it's needed to prevent 7GB+ overages
+2. **Image Lifecycle** – Store, compress, cache, and serve images efficiently through Supabase Storage
+
+---
+
+## 🚨 CRITICAL: Egress Prevention Strategy
+
+### 1.1 Query Design for Minimal Egress
+| Situation | Supabase Strategy | Egress Impact |
+|-----------|-------------------|---------------|
+| **Editing /today or /entry/[id]** | Single-row query with `.select()` specific columns. Optional realtime for active editing only. | **LOW** - <1KB per fetch |
+| **Calendar & Lists** | Use **aggregated** queries (counts, date_keys only) via `.select('date_key, word_count, id')`. **No content fetching**. | **MINIMAL** - <100B per entry |
+| **Background/Inactive** | **No automatic fetching**. Use stale cache data until user actively navigates. | **ZERO** |
+| **Mobile Background ↔︎ Foreground** | Listen for `visibilitychange`, only refetch if data is >15 mins stale. | **CONTROLLED** |
+| **Offline** | React-Query cache with localStorage persistence; no network requests until online. | **ZERO** |
+
+### 1.2 Supabase Realtime Optimization
+```typescript
+// ONLY use realtime for actively edited entries
+const useSelectiveRealtime = (entryId: string, isActivelyEditing: boolean) => {
+  useEffect(() => {
+    if (!isActivelyEditing) return // Critical: No subscription unless editing
+    
+    const channel = supabase
+      .channel(`entry-${entryId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'entries',
+        filter: `id=eq.${entryId}`,
+      }, (payload) => {
+        // Update specific cache entry only
+        queryClient.setQueryData(['entry', entryId], payload.new)
+      })
+      .subscribe()
+    
+    return () => {
+      channel.unsubscribe() // Always cleanup
+    }
+  }, [entryId, isActivelyEditing])
+}
+```
+
+### 1.3 Mutation Hygiene for Egress Control
+1. **Debounce Auto-Save**: 2 seconds delay, cancel if content unchanged
+2. **Batch Field Updates**: Send only changed fields via partial updates
+3. **Optimistic Updates**: Update cache immediately, no refetch needed
+4. **Error Handling**: Rollback cache on error, don't refetch
+
+```typescript
+const useDebouncedSave = (entryId: string, content: string) => {
+  const debouncedSave = useMemo(
+    () => debounce(async (newContent: string) => {
+      if (!newContent.trim()) return // Don't save empty content
+      
+      await supabase
+        .from('entries')
+        .update({ 
+          content: newContent,
+          word_count: newContent.split(/\s+/).length,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', entryId)
+        .eq('user_id', userId) // RLS optimization
+    }, 2000),
+    [entryId, userId]
+  )
+  
+  useEffect(() => {
+    debouncedSave(content)
+  }, [content, debouncedSave])
+}
+```
+
+---
+
+## 2. Supabase Storage Image Lifecycle
+
+### 2.1 Client-Side Compression (Mandatory)
+```typescript
+import imageCompression from "browser-image-compression"
+
+const compressImage = async (file: File): Promise<File> => {
+  // CRITICAL: Always compress before upload to save egress
+  return await imageCompression(file, {
+    maxSizeMB: 1.5, // Reduced from 2MB to save storage/egress
+    maxWidthOrHeight: 1080, // Reduced from 1200
+    fileType: "image/webp",
+    initialQuality: 0.8, // Increased quality slightly
+    useWebWorker: true,
+  })
+}
+```
+
+### 2.2 Supabase Storage Structure
+```
+entry-images/
+  {userId}/
+    {entryId}/
+      original_{timestamp}.webp
+      thumb_{timestamp}.webp
+```
+
+### 2.3 Database Schema for Images
+```sql
+CREATE TABLE images (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  entry_id UUID NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+  storage_path TEXT NOT NULL, -- Path in Supabase Storage
+  width INTEGER,
+  height INTEGER,
+  file_size INTEGER, -- Track for egress monitoring
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS Policies
+ALTER TABLE images ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can manage their own images"
+  ON images FOR ALL
+  USING (user_id = auth.uid());
+
+-- Indexes for performance
+CREATE INDEX idx_images_entry_id ON images(entry_id);
+CREATE INDEX idx_images_user_id ON images(user_id);
+```
+
+### 2.4 Egress-Optimized Upload Flow
+```typescript
+const uploadImage = async (file: File, entryId: string) => {
+  // 1. Compress first (mandatory)
+  const compressed = await compressImage(file)
+  
+  // 2. Generate consistent file path
+  const timestamp = Date.now()
+  const filePath = `${userId}/${entryId}/original_${timestamp}.webp`
+  
+  // 3. Upload to Supabase Storage
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from('entry-images')
+    .upload(filePath, compressed, {
+      contentType: 'image/webp',
+      upsert: false, // Prevent overwriting
+    })
+  
+  if (uploadError) throw uploadError
+  
+  // 4. Create database record
+  const { data: imageRecord, error: dbError } = await supabase
+    .from('images')
+    .insert({
+      entry_id: entryId,
+      user_id: userId,
+      storage_path: uploadData.path,
+      file_size: compressed.size,
+    })
+    .select()
+    .single()
+  
+  if (dbError) throw dbError
+  
+  // 5. Get optimized CDN URL with transforms
+  const { data: urlData } = supabase.storage
+    .from('entry-images')
+    .getPublicUrl(uploadData.path, {
+      transform: {
+        width: 800,
+        height: 600,
+        resize: 'contain',
+        quality: 80,
+      },
+    })
+  
+  return {
+    ...imageRecord,
+    url: urlData.publicUrl,
+  }
+}
+```
+
+### 2.5 CDN-Optimized Display Component
+```typescript
+const ImageDisplay = ({ imagePath, alt }: { imagePath: string; alt: string }) => {
+  // Use Supabase transforms to serve optimized images
+  const getImageUrl = (width: number, height: number) => {
+    const { data } = supabase.storage
+      .from('entry-images')
+      .getPublicUrl(imagePath, {
+        transform: {
+          width,
+          height,
+          resize: 'contain',
+          quality: 80,
+        },
+      })
+    return data.publicUrl
+  }
+  
+  return (
+    <img
+      src={getImageUrl(400, 300)} // Thumbnail
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      className="w-full h-auto rounded-lg"
+      onClick={() => {
+        // Show full-size modal with getImageUrl(1200, 900)
+      }}
+    />
+  )
+}
+```
+
+### 2.6 Cleanup & Storage Management
+```typescript
+// Delete image and storage file
+const deleteImage = async (imageId: string) => {
+  // 1. Get image record to find storage path
+  const { data: image } = await supabase
+    .from('images')
+    .select('storage_path')
+    .eq('id', imageId)
+    .single()
+  
+  if (!image) return
+  
+  // 2. Delete from storage
+  await supabase.storage
+    .from('entry-images')
+    .remove([image.storage_path])
+  
+  // 3. Delete database record
+  await supabase
+    .from('images')
+    .delete()
+    .eq('id', imageId)
+}
+
+// Cascade delete for entry deletion
+const deleteEntry = async (entryId: string) => {
+  // 1. Get all images for entry
+  const { data: images } = await supabase
+    .from('images')
+    .select('storage_path')
+    .eq('entry_id', entryId)
+  
+  // 2. Delete all storage files
+  if (images?.length) {
+    const paths = images.map(img => img.storage_path)
+    await supabase.storage
+      .from('entry-images')
+      .remove(paths)
+  }
+  
+  // 3. Delete entry (images will cascade delete via FK)
+  await supabase
+    .from('entries')
+    .delete()
+    .eq('id', entryId)
+}
+```
+
+---
+
+## 3. Page Visibility API for Background Optimization
+
+### 3.1 Pause Data Fetching When Not Visible
+```typescript
+const usePageVisibility = () => {
+  const [isVisible, setIsVisible] = useState(!document.hidden)
+  
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsVisible(!document.hidden)
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
+  
+  return isVisible
+}
+
+// Use in components to pause expensive operations
+const EntryEditor = ({ entryId }: { entryId: string }) => {
+  const isVisible = usePageVisibility()
+  
+  // Only enable realtime when visible
+  const { data: entry } = useQuery({
+    queryKey: ['entry', entryId],
+    queryFn: () => fetchEntry(entryId),
+    refetchInterval: isVisible ? 30000 : false, // Only refetch when visible
+  })
+  
+  // Only subscribe to realtime when visible and editing
+  useSelectiveRealtime(entryId, isVisible && isEditing)
+}
+```
+
+---
+
+## 4. Offline Queue for Images
+
+### 4.1 IndexedDB Storage for Offline Images
+```typescript
+// Store failed uploads for retry when online
+const storeOfflineImage = async (file: File, entryId: string) => {
+  const compressed = await compressImage(file)
+  
+  // Store in IndexedDB
+  const request = indexedDB.open('adjourn-offline', 1)
+  request.onsuccess = (event) => {
+    const db = event.target.result
+    const transaction = db.transaction(['images'], 'readwrite')
+    const store = transaction.objectStore('images')
+    
+    store.add({
+      id: crypto.randomUUID(),
+      entryId,
+      file: compressed,
+      timestamp: Date.now(),
+      status: 'pending',
+    })
+  }
+}
+
+// Retry uploads when back online
+const retryOfflineUploads = async () => {
+  // Get pending uploads from IndexedDB
+  // Attempt upload for each
+  // Remove from IndexedDB on success
+}
+```
+
+---
+
+## 5. Egress Monitoring & Alerts
+
+### 5.1 Client-Side Egress Tracking
+```typescript
+let egressCounter = 0
+
+// Intercept Supabase requests to track egress
+const originalFetch = window.fetch
+window.fetch = async (...args) => {
+  const response = await originalFetch(...args)
+  
+  if (args[0]?.toString().includes('supabase')) {
+    const contentLength = response.headers.get('content-length')
+    if (contentLength) {
+      egressCounter += parseInt(contentLength)
+      
+      // Warn if approaching limits
+      if (egressCounter > 1024 * 1024 * 100) { // 100MB
+        console.warn('High egress usage detected:', egressCounter / 1024 / 1024, 'MB')
+      }
+    }
+  }
+  
+  return response
+}
+```
+
+---
+
+## 6. Implementation Priority Order
+
+1. **Critical**: Update all queries to use `.select()` with specific columns
+2. **Critical**: Implement image compression before upload
+3. **High**: Add page visibility API to pause background fetching
+4. **High**: Setup debounced auto-save with partial updates
+5. **Medium**: Implement egress monitoring in development
+6. **Medium**: Add offline image queue
+7. **Low**: Optimize storage cleanup jobs
+
+---
+
+## 7. Supabase RLS Optimization for Performance
+
+```sql
+-- Efficient RLS policies that use indexes
+CREATE POLICY "Entries are viewable by owner" ON entries
+  FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY "Images are viewable by owner" ON images
+  FOR SELECT USING (user_id = auth.uid());
+
+-- Compound indexes for common query patterns
+CREATE INDEX idx_entries_user_date ON entries(user_id, date_key);
+CREATE INDEX idx_entries_user_journal ON entries(user_id, journal_id, created_at DESC);
+```
+
+---
+
+Follow these guidelines to keep Adjourn **fast, cost-effective, and reliable** when dealing with Supabase data sync and image workflows. Every decision should prioritize egress reduction while maintaining excellent UX.
+

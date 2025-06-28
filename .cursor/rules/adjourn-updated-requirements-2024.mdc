@@ -1,0 +1,314 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Adjourn - Updated Requirements & Critical Changes (2024-12)
+
+**This rule documents the UPDATED requirements and critical changes that must be implemented. This supersedes any conflicting information in other rule files.**
+
+---
+
+## 🚨 CRITICAL: Authentication Changes
+
+### ❌ REMOVE: Magic Link Authentication
+- **NO MORE** magic link buttons in the UI
+- **NO MORE** `signInWithOtp()` calls
+- **Remove** any magic link related components from frontend
+
+### ✅ IMPLEMENT: Google OAuth + Email/Password
+
+#### Primary Authentication: Google OAuth
+```typescript
+const signInWithGoogle = async () => {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}/auth/callback`,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  })
+  if (error) throw error
+}
+```
+
+#### Fallback Authentication: Email/Password
+```typescript
+// Sign In
+const signInWithEmail = async (email: string, password: string) => {
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+  if (error) throw error
+}
+
+// Sign Up
+const signUpWithEmail = async (email: string, password: string) => {
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/auth/callback`,
+    },
+  })
+  if (error) throw error
+}
+```
+
+#### Required UI Flow
+1. **Primary**: Large Google OAuth button
+2. **Divider**: "or" with line separators
+3. **Secondary**: Email/password form with toggle between sign in/sign up
+4. **Clean Design**: Follow the AuthenticationFlow component pattern in the general UX rule
+
+---
+
+## 🚨 CRITICAL: Egress Cost Control
+
+### Problem Statement
+- **Previous project hit 7GB egress in 12 hours**
+- **Monthly limit is only 5GB**
+- **Must prevent egress overages at all costs**
+
+### Mandatory Egress Prevention Rules
+
+#### 1. Query Optimization (ENFORCE STRICTLY)
+```typescript
+// ❌ NEVER DO THIS - Fetches too much data
+const { data } = await supabase.from('entries').select('*')
+
+// ✅ ALWAYS DO THIS - Select only needed columns
+const { data } = await supabase.from('entries').select('id, title, date_key, word_count')
+```
+
+#### 2. Pagination & Limits (MANDATORY)
+```typescript
+// ❌ NEVER DO THIS - Unlimited results
+const { data } = await supabase.from('entries').select('content')
+
+// ✅ ALWAYS DO THIS - Limit results
+const { data } = await supabase.from('entries')
+  .select('content')
+  .limit(50) // Always limit queries
+```
+
+#### 3. Aggressive Caching (REQUIRED)
+```typescript
+// React Query configuration for egress reduction
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 15 * 60 * 1000, // 15 minutes (longer than default)
+      gcTime: 60 * 60 * 1000,    // 1 hour (longer cache retention)
+      refetchOnWindowFocus: false, // CRITICAL: Don't refetch on focus
+      refetchOnMount: false,       // Use cache first
+    },
+  },
+})
+```
+
+#### 4. Realtime Subscription Limits (CRITICAL)
+```typescript
+// ❌ NEVER DO THIS - Subscribe to everything
+supabase.channel('all-entries').on('postgres_changes', ...)
+
+// ✅ ONLY DO THIS - Subscribe to actively edited entry only
+const useSelectiveRealtime = (entryId: string, isActivelyEditing: boolean) => {
+  useEffect(() => {
+    if (!isActivelyEditing) return // Only when actively editing
+    
+    const channel = supabase.channel(`entry-${entryId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'entries',
+        filter: `id=eq.${entryId}`,
+      }, handleUpdate)
+      .subscribe()
+    
+    return () => channel.unsubscribe() // Always cleanup
+  }, [entryId, isActivelyEditing])
+}
+```
+
+#### 5. Image Handling (MANDATORY COMPRESSION)
+```typescript
+// ❌ NEVER upload raw images
+const uploadRawImage = (file: File) => {
+  return supabase.storage.from('images').upload(path, file)
+}
+
+// ✅ ALWAYS compress before upload
+const uploadImage = async (file: File) => {
+  const compressed = await imageCompression(file, {
+    maxSizeMB: 1.5,
+    maxWidthOrHeight: 1080,
+    fileType: "image/webp",
+    initialQuality: 0.8,
+  })
+  
+  return supabase.storage.from('entry-images').upload(path, compressed)
+}
+```
+
+---
+
+## 🤖 AI Integration: Gemini 2.0 Flash
+
+### AI Companion: "Muse"
+- **Model**: Gemini 2.0 Flash (latest model)
+- **Purpose**: Thoughtful journaling companion
+- **Trigger**: User-initiated only (button tap)
+- **Rate Limit**: 10 requests per hour per user
+
+### Implementation via Edge Function
+```typescript
+// supabase/functions/muse-ai/index.ts
+import { GoogleGenerativeAI } from '@google/generative-ai'
+
+const genAI = new GoogleGenerativeAI(Deno.env.get('GEMINI_API_KEY')!)
+
+export default async (req: Request) => {
+  const { content } = await req.json()
+  
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  
+  const prompt = `You are Muse, a thoughtful journaling companion. Based on this journal entry, provide a brief, empathetic response that encourages reflection or offers gentle insight.
+
+Entry: ${content}
+
+Response (keep under 100 words):`
+  
+  const result = await model.generateContent(prompt)
+  
+  return new Response(JSON.stringify({
+    response: result.response.text(),
+    timestamp: new Date().toISOString(),
+  }))
+}
+```
+
+### Client Integration
+```typescript
+const useMuseAI = () => {
+  const [requestCount, setRequestCount] = useState(0)
+  
+  const callMuse = useMutation({
+    mutationFn: async (content: string) => {
+      if (requestCount >= 10) {
+        throw new Error('Hourly AI request limit reached')
+      }
+      
+      const { data, error } = await supabase.functions.invoke('muse-ai', {
+        body: { content },
+      })
+      
+      if (error) throw error
+      setRequestCount(prev => prev + 1)
+      return data
+    },
+    onSuccess: () => {
+      // Cache response for 24 hours to prevent duplicate calls
+    },
+  })
+  
+  return { callMuse, requestsRemaining: 10 - requestCount }
+}
+```
+
+---
+
+## 🏗️ Backend Setup Requirements
+
+### Supabase Project Setup (NOT YET DONE)
+1. **Create Supabase project**
+2. **Apply database schema** from the rules
+3. **Setup RLS policies** for all tables
+4. **Configure Google OAuth** in Supabase Auth settings
+5. **Create storage bucket** `entry-images` with RLS
+6. **Deploy Edge Functions** for AI integration
+
+### Environment Variables Required
+```bash
+# Client-side (Next.js)
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# Server-side (Edge Functions)
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+GEMINI_API_KEY=your-gemini-api-key
+```
+
+### Google OAuth Setup
+1. **Google Cloud Console**: Create OAuth 2.0 credentials
+2. **Authorized redirect URIs**: Add Supabase auth callback URL
+3. **Supabase Dashboard**: Configure Google provider with client ID/secret
+
+---
+
+## 📱 Frontend Current State
+
+### What Exists
+- ✅ Frontend components and UI
+- ✅ React Query optimization rules
+- ✅ Mobile-first design
+- ❌ Magic link authentication (NEEDS REMOVAL)
+- ❌ No backend connection yet
+
+### What Needs Implementation
+1. **Remove magic link UI** and replace with Google OAuth + email/password
+2. **Connect to Supabase backend** (once created)
+3. **Implement egress-optimized queries** following the rules
+4. **Add Muse AI integration** with Edge Functions
+5. **Test egress usage** in development with monitoring
+
+---
+
+## 🎯 Implementation Priority
+
+### Phase 1: Critical (Do First)
+1. **Remove magic link authentication** from frontend
+2. **Implement Google OAuth + email/password UI**
+3. **Setup Supabase project** and apply schema
+4. **Implement egress-optimized queries** with strict limits
+
+### Phase 2: Core Features  
+1. **Connect frontend to Supabase backend**
+2. **Implement image compression** and storage
+3. **Add AI Edge Functions** for Muse
+4. **Test egress usage** thoroughly
+
+### Phase 3: Polish
+1. **Optimize performance** further
+2. **Add offline support** enhancements
+3. **Monitor and fine-tune** egress usage
+4. **Add advanced features**
+
+---
+
+## ⚠️ Critical Warnings
+
+### Authentication
+- **NEVER** implement magic links again
+- **ALWAYS** test Google OAuth flow thoroughly
+- **ENSURE** email/password fallback works
+
+### Egress Control
+- **MONITOR** egress usage constantly in development
+- **NEVER** use `select('*')` or unlimited queries
+- **ALWAYS** implement pagination and limits
+- **TEST** with real data volumes before production
+
+### AI Integration
+- **LIMIT** to 10 requests per hour per user
+- **CACHE** responses to prevent duplicate calls
+- **HANDLE** rate limits gracefully
+
+---
+
+**Follow these requirements strictly to prevent the egress issues and ensure proper authentication flow.**
+

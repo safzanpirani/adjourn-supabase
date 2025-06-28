@@ -1,0 +1,566 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Adjourn – Supabase General Project UX & Reliability Rules (2024-12)
+
+This rule aggregates **cross-cutting concerns** that don't belong to a single feature but keep Adjourn **secure, resilient, and delightful** with Supabase backend.
+
+---
+
+## 1. Authentication & Security (Supabase Auth)
+
+### 1.1 Google OAuth + Email/Password Setup
+```typescript
+// Primary authentication methods (NO magic links)
+export const signInWithGoogle = async () => {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}/auth/callback`,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  })
+  if (error) throw error
+}
+
+export const signInWithEmail = async (email: string, password: string) => {
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+  if (error) throw error
+}
+
+export const signUpWithEmail = async (email: string, password: string) => {
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/auth/callback`,
+    },
+  })
+  if (error) throw error
+}
+```
+
+### 1.2 Session Management & Security
+1. **Automatic Token Refresh**: Supabase handles JWT refresh automatically with 1-hour expiry
+2. **Row-Level Security**: Every query validates `user_id = auth.uid()` via RLS policies
+3. **Session Persistence**: Store in localStorage with `persistSession: true`
+4. **OAuth Disconnect**: Listen for auth state changes to handle revoked permissions
+
+```typescript
+// Secure user context with automatic refresh
+export const useAuth = () => {
+  return useQuery({
+    queryKey: ['auth'],
+    queryFn: async () => {
+      const { data: { user }, error } = await supabase.auth.getUser()
+      if (error) throw error
+      return user
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1, // Don't retry auth failures excessively
+  })
+}
+
+// Auth state listener for logout/revocation
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    // Clear all user data from cache
+    queryClient.clear()
+    localStorage.removeItem('adjourn-cache-journals')
+    localStorage.removeItem('adjourn-cache-today-entry')
+  }
+})
+```
+
+---
+
+## 2. AI Integration (Gemini 2.0 Flash)
+
+### 2.1 Muse AI Companion Setup
+```typescript
+// Gemini 2.0 Flash integration for AI companion
+const generateMuseResponse = async (entryContent: string, context?: string) => {
+  const { data, error } = await supabase.functions.invoke('muse-ai', {
+    body: {
+      content: entryContent,
+      context: context,
+      model: 'gemini-2.0-flash', // Use latest model
+      max_tokens: 500,
+      temperature: 0.7,
+    },
+  })
+  
+  if (error) throw error
+  return data.response
+}
+
+// Rate limiting for cost control
+const useMuseWithRateLimit = () => {
+  const [requestCount, setRequestCount] = useState(0)
+  const [lastReset, setLastReset] = useState(Date.now())
+  
+  const callMuse = async (content: string) => {
+    const now = Date.now()
+    const hoursSinceReset = (now - lastReset) / (1000 * 60 * 60)
+    
+    // Reset counter every hour
+    if (hoursSinceReset >= 1) {
+      setRequestCount(0)
+      setLastReset(now)
+    }
+    
+    // Limit to 10 requests per hour per user
+    if (requestCount >= 10) {
+      throw new Error('Hourly AI request limit reached')
+    }
+    
+    setRequestCount(prev => prev + 1)
+    return await generateMuseResponse(content)
+  }
+  
+  return { callMuse, requestsRemaining: 10 - requestCount }
+}
+```
+
+### 2.2 Edge Function for AI (Server-Side)
+```typescript
+// supabase/functions/muse-ai/index.ts
+import { GoogleGenerativeAI } from '@google/generative-ai'
+
+const genAI = new GoogleGenerativeAI(Deno.env.get('GEMINI_API_KEY')!)
+
+export default async (req: Request) => {
+  const { content, context } = await req.json()
+  
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  
+  const prompt = `You are Muse, a thoughtful journaling companion. Based on this journal entry, provide a brief, empathetic response that encourages reflection or offers gentle insight.
+  
+  Context: ${context || 'None'}
+  Entry: ${content}
+  
+  Response (keep under 100 words):`
+  
+  const result = await model.generateContent(prompt)
+  
+  return new Response(JSON.stringify({
+    response: result.response.text(),
+    timestamp: new Date().toISOString(),
+  }))
+}
+```
+
+---
+
+## 3. Offline & Conflict Resolution (Supabase + React Query)
+
+### 3.1 Offline Queue Strategy
+```typescript
+// Enhanced offline queue for Supabase
+interface OfflineOperation {
+  id: string
+  type: 'INSERT' | 'UPDATE' | 'DELETE'
+  table: string
+  data: any
+  timestamp: number
+  retryCount: number
+}
+
+const useOfflineQueue = () => {
+  const [queue, setQueue] = useState<OfflineOperation[]>([])
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+  
+  const executeQueue = async () => {
+    if (!isOnline || queue.length === 0) return
+    
+    for (const operation of queue) {
+      try {
+        switch (operation.type) {
+          case 'INSERT':
+            await supabase.from(operation.table).insert(operation.data)
+            break
+          case 'UPDATE':
+            await supabase.from(operation.table).update(operation.data.updates).eq('id', operation.data.id)
+            break
+          case 'DELETE':
+            await supabase.from(operation.table).delete().eq('id', operation.data.id)
+            break
+        }
+        
+        // Remove successful operation from queue
+        setQueue(prev => prev.filter(op => op.id !== operation.id))
+      } catch (error) {
+        console.error('Failed to execute offline operation:', error)
+        // Increment retry count, remove if too many failures
+        setQueue(prev => prev.map(op => 
+          op.id === operation.id 
+            ? { ...op, retryCount: op.retryCount + 1 }
+            : op
+        ).filter(op => op.retryCount < 3))
+      }
+    }
+  }
+  
+  useEffect(() => {
+    if (isOnline) {
+      executeQueue()
+    }
+  }, [isOnline])
+  
+  return { addToQueue: (operation: Omit<OfflineOperation, 'id' | 'timestamp' | 'retryCount'>) => {
+    setQueue(prev => [...prev, {
+      ...operation,
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      retryCount: 0,
+    }])
+  }}
+}
+```
+
+### 3.2 Conflict Resolution
+```typescript
+// Handle conflicts with server data
+const resolveConflict = async (localData: any, serverData: any) => {
+  if (localData.updated_at > serverData.updated_at) {
+    // Local is newer, keep local changes
+    await supabase
+      .from('entries')
+      .update(localData)
+      .eq('id', localData.id)
+    
+    toast.info('Your local changes were preserved')
+  } else {
+    // Server is newer, merge or ask user
+    toast.warning('Entry was updated on another device. Changes merged.')
+    queryClient.setQueryData(['entry', localData.id], serverData)
+  }
+}
+```
+
+---
+
+## 4. Background Jobs (Supabase Edge Functions + Cron)
+
+### 4.1 Scheduled Functions
+```sql
+-- Enable pg_cron extension
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+-- Daily cleanup of orphaned images
+SELECT cron.schedule(
+  'cleanup-orphaned-images',
+  '0 2 * * *', -- 2 AM daily
+  $$
+    DELETE FROM storage.objects 
+    WHERE bucket_id = 'entry-images' 
+    AND created_at < NOW() - INTERVAL '24 hours'
+    AND name NOT IN (
+      SELECT storage_path FROM images
+    );
+  $$
+);
+
+-- Weekly streak recalculation
+SELECT cron.schedule(
+  'recalculate-streaks',
+  '0 3 * * 0', -- 3 AM every Sunday
+  $$
+    REFRESH MATERIALIZED VIEW CONCURRENTLY user_streaks;
+  $$
+);
+```
+
+### 4.2 Real-time Triggers
+```sql
+-- Trigger to update word count on entry changes
+CREATE OR REPLACE FUNCTION update_entry_word_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.word_count = array_length(string_to_array(trim(NEW.content), ' '), 1);
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_word_count
+  BEFORE UPDATE ON entries
+  FOR EACH ROW
+  EXECUTE FUNCTION update_entry_word_count();
+```
+
+---
+
+## 5. Cost & Rate-Limit Awareness
+
+### 5.1 API Usage Monitoring
+```typescript
+// Track API usage to prevent overages
+const useAPIUsageTracking = () => {
+  const [usage, setUsage] = useState({
+    aiRequests: 0,
+    storageUsed: 0,
+    egressUsed: 0,
+  })
+  
+  const trackAIRequest = () => {
+    setUsage(prev => ({ ...prev, aiRequests: prev.aiRequests + 1 }))
+    
+    // Alert if approaching limits
+    if (usage.aiRequests > 90) { // 90% of 100 daily limit
+      toast.warning('Approaching daily AI request limit')
+    }
+  }
+  
+  return { usage, trackAIRequest }
+}
+```
+
+### 5.2 Gemini Integration Best Practices
+1. **User-Triggered Only**: AI responses only on explicit user tap/button press
+2. **Content Limits**: Pass only current entry text (max 2000 chars) as context
+3. **Response Caching**: Cache AI responses for 24 hours to prevent duplicate calls
+4. **Error Handling**: Graceful fallback when rate limits hit
+
+```typescript
+const useMuseResponse = (entryContent: string) => {
+  return useQuery({
+    queryKey: ['muse-response', entryContent.slice(0, 100)], // Cache by content snippet
+    queryFn: () => generateMuseResponse(entryContent),
+    enabled: false, // Only run when manually triggered
+    staleTime: 24 * 60 * 60 * 1000, // 24 hours cache
+    retry: 1, // Don't retry on rate limit
+  })
+}
+```
+
+---
+
+## 6. Service Worker / PWA (Updated for Supabase)
+
+### 6.1 Cache Strategy for Supabase
+```typescript
+// Custom cache strategy for Supabase endpoints
+const CACHE_CONFIG = {
+  'supabase-data': {
+    strategy: 'stale-while-revalidate',
+    maxAge: 15 * 60, // 15 minutes
+  },
+  'supabase-auth': {
+    strategy: 'network-first',
+    maxAge: 5 * 60, // 5 minutes
+  },
+  'supabase-storage': {
+    strategy: 'cache-first',
+    maxAge: 24 * 60 * 60, // 24 hours for images
+  },
+}
+```
+
+### 6.2 Critical Data Persistence
+```typescript
+// Store critical data in localStorage as backup
+const persistCriticalData = () => {
+  const criticalQueries = ['today-entry', 'user-profile', 'journals']
+  
+  criticalQueries.forEach(queryKey => {
+    const data = queryClient.getQueryData([queryKey])
+    if (data) {
+      localStorage.setItem(`adjourn-backup-${queryKey}`, JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }))
+    }
+  })
+}
+
+// Run every 10 seconds when editing
+setInterval(persistCriticalData, 10000)
+```
+
+---
+
+## 7. Accessibility & UX Polish
+
+### 7.1 Authentication UX
+```typescript
+// Beautiful auth flow component
+const AuthenticationFlow = () => {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-6 bg-white rounded-2xl shadow-xl p-8">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to Adjourn</h1>
+          <p className="text-gray-600">Your personal journaling sanctuary</p>
+        </div>
+        
+        {/* Google OAuth Button */}
+        <button
+          onClick={signInWithGoogle}
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          <GoogleIcon />
+          Continue with Google
+        </button>
+        
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300" />
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-white text-gray-500">or</span>
+          </div>
+        </div>
+        
+        {/* Email/Password Form */}
+        <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp}>
+          <div className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              required
+            />
+            
+            <button
+              type="submit"
+              className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition-colors font-medium"
+            >
+              {mode === 'signin' ? 'Sign In' : 'Create Account'}
+            </button>
+          </div>
+        </form>
+        
+        <p className="text-center text-sm text-gray-600">
+          {mode === 'signin' ? "Don't have an account? " : "Already have an account? "}
+          <button
+            onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+            className="text-orange-500 hover:text-orange-600 font-medium"
+          >
+            {mode === 'signin' ? 'Sign up' : 'Sign in'}
+          </button>
+        </p>
+      </div>
+    </div>
+  )
+}
+```
+
+### 7.2 Mobile-First Interaction Patterns
+1. **Touch Targets**: Minimum 44px height for all interactive elements
+2. **Gesture Support**: Swipe navigation between dates
+3. **Keyboard Optimization**: Smart keyboard management for mobile editing
+4. **Voice Input**: Integration with Web Speech API for voice notes
+
+---
+
+## 8. Environment & Secret Management
+
+### 8.1 Supabase Configuration
+```typescript
+// Environment variables (client-side)
+const supabaseConfig = {
+  url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+}
+
+// Server-side secrets (Edge Functions)
+const serverSecrets = {
+  serviceRoleKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  geminiApiKey: Deno.env.get('GEMINI_API_KEY')!,
+  jwtSecret: Deno.env.get('SUPABASE_JWT_SECRET')!,
+}
+```
+
+### 8.2 Security Best Practices
+1. **RLS Everywhere**: All tables have Row Level Security enabled
+2. **API Key Rotation**: Rotate Gemini API keys monthly
+3. **CORS Configuration**: Strict origin controls in Supabase
+4. **Rate Limiting**: Implement in Edge Functions for AI endpoints
+
+---
+
+## 9. Error Handling & Monitoring
+
+### 9.1 Comprehensive Error Boundaries
+```typescript
+const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
+  const [hasError, setHasError] = useState(false)
+  
+  useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      console.error('Global error:', error)
+      setHasError(true)
+      
+      // Report to monitoring service
+      if (process.env.NODE_ENV === 'production') {
+        // Send to Sentry or similar
+      }
+    }
+    
+    window.addEventListener('error', handleError)
+    return () => window.removeEventListener('error', handleError)
+  }, [])
+  
+  if (hasError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center p-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Something went wrong</h2>
+          <p className="text-gray-600 mb-6">We're sorry for the inconvenience. Your data is safe.</p>
+          <button
+            onClick={() => {
+              setHasError(false)
+              window.location.reload()
+            }}
+            className="bg-orange-500 text-white px-6 py-2 rounded-lg hover:bg-orange-600"
+          >
+            Reload App
+          </button>
+        </div>
+      </div>
+    )
+  }
+  
+  return <>{children}</>
+}
+```
+
+---
+
+Adhering to these rules keeps Adjourn **secure, cost-effective, accessible, and delightful** across devices and network conditions with Supabase as the backend foundation.

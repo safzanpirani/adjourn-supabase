@@ -1,0 +1,196 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Adjourn – Date Navigation & Time-Zone UX Rules (2024-12)
+
+## Purpose
+Provide **step-by-step engineering guidance** so that:
+1. Clicking a date in either calendar **always** opens the correct entry for that calendar day in the **user's local timezone**.
+2. When the calendar day rolls over at midnight the **currently-open editor keeps working on the same entry** (e.g. yesterday's) until the user intentionally refreshes or selects a new day.
+3. If the selected day has **no entry** we immediately create an **empty stub entry** and open it.
+4. We avoid edge cases that confuse users (duplicate entries, wrong dates, DST jumps, offline edits, etc.).
+
+These rules apply to:
+- **/today** page (implicit date)
+- **/entry/[id]** page (explicit id)
+- Big & sidebar calendars
+- All Supabase queries/mutations that read or write `entries`, `prompts`, `streaks`, etc.
+
+---
+
+## 1. Canonical Date Key
+
+### 1.1 Store dates as `YYYY-MM-DD` **strings** in UTC but **derived from user timezone**
+```ts
+import { DateTime } from "luxon";
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const todayKey = DateTime.now().setZone(tz).toISODate(); // "2024-12-01"
+```
+Reason: avoids DST ambiguity while keeping queries string-based & indexable.
+
+### 1.2 Supabase schema
+```sql
+CREATE TABLE entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  date_key TEXT NOT NULL, -- canonical key e.g. "2024-12-01"
+  content TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Unique constraint to prevent duplicates
+CREATE UNIQUE INDEX idx_entries_user_date_unique ON entries(user_id, date_key);
+-- Performance index
+CREATE INDEX idx_entries_user_id ON entries(user_id, created_at DESC);
+```
+
+---
+
+## 2. Reading Data
+
+### 2.1 `useTodayEntryOptimized`
+1. Compute `todayKey` **once on mount** → store in ref `stableDateKey`.
+2. Query Supabase with `supabase.from('entries').select().eq('user_id', userId).eq('date_key', stableDateKey)`.
+3. DO **NOT** recompute `todayKey` on re-renders; page keeps yesterday's key if opened before midnight.
+4. If `!entry`, call `createEntry(stableDateKey)` mutation optimistically via React Query.
+
+### 2.2 Calendar click handler
+```ts
+router.push(`/entry/${dateKey}`) // dateKey param
+```
+Ensure dateKey computed in the same TZ util.
+
+### 2.3 `useEntryById` (historical)
+Derive `dateKey` from entry doc; show warning banner if user TZ no longer matches entry TZ (rare).
+
+---
+
+## 3. Writing Data (Mutations)
+
+- All mutations accept `dateKey` param.
+- Supabase RLS and unique constraint validates that `(user_id, date_key)` is unique.
+- On conflict (rare), use `upsert()` to update existing entry instead of insert.
+
+```typescript
+const createEntry = async (dateKey: string) => {
+  const { data, error } = await supabase
+    .from('entries')
+    .upsert({
+      user_id: user.id,
+      date_key: dateKey,
+      content: '',
+      updated_at: new Date().toISOString(),
+    })
+    .select()
+    .single()
+  
+  if (error) throw error
+  return data
+}
+```
+
+---
+
+## 4. Midnight Rollover Edge Case
+
+Problem: User keeps /today open across midnight → auto-save might suddenly point to new day.
+
+### Solution
+1. Keep `stableDateKey` (ref) for entire session.
+2. Start **interval timer** at `00:00:01 local` to show subtle toast: "It's a new day! Refresh to write Today's entry."
+3. Provide CTA button to switch to new entry (will compute fresh `todayKey`).
+4. Auto-refresh only after user clicks CTA.
+
+---
+
+## 5. Offline Support
+
+- All optimistic writes queue with React Query offline support and `offline_queue` table.
+- Each queued mutation stores `dateKey` so replay stays accurate even if TZ changed while offline.
+- Use React Query's `onMutate` for optimistic updates and `onError` for rollback.
+
+```typescript
+const updateEntry = useMutation({
+  mutationFn: async ({ entryId, content, dateKey }) => {
+    return await supabase
+      .from('entries')
+      .update({ content, updated_at: new Date().toISOString() })
+      .eq('id', entryId)
+      .eq('user_id', user.id)
+  },
+  onMutate: async (variables) => {
+    // Optimistic update
+    queryClient.setQueryData(['entry', variables.dateKey], (old) => ({
+      ...old,
+      content: variables.content,
+    }))
+  },
+})
+```
+
+---
+
+## 6. Daylight-Saving Time (DST) & TZ Change
+
+- Always compute `dateKey` via `luxon.setZone(userTZ)`.
+- If user changes device TZ during session, keep `stableDateKey`.
+- On next app launch we use new TZ automatically.
+
+---
+
+## 7. Calendar Indicators Logic
+
+- Query aggregated counts grouped by `date_key` using Supabase.
+- Return `{ dateKey, hasEntry, hasPhotos }[]`.
+- Calendars map local date → `dateKey` → indicators; ensures correct dots even around DST.
+
+```typescript
+const getCalendarIndicators = async (year: number, month: number) => {
+  const startDate = `${year}-${month.toString().padStart(2, '0')}-01`
+  const endDate = `${year}-${(month + 1).toString().padStart(2, '0')}-01`
+  
+  const { data, error } = await supabase
+    .from('entries')
+    .select('date_key, id, images(id)')
+    .eq('user_id', user.id)
+    .gte('date_key', startDate)
+    .lt('date_key', endDate)
+  
+  return data?.reduce((acc, entry) => {
+    acc[entry.date_key] = {
+      hasEntry: true,
+      hasPhotos: entry.images.length > 0,
+    }
+    return acc
+  }, {})
+}
+```
+
+---
+
+## 8. Testing Checklist
+
+1. **Pre-midnight**: open /today at 23:59, write text → after 00:01 see toast, entry still yesterday, content saved.
+2. Click toast → new blank entry for today created.
+3. **Calendar click** various dates around DST change (e.g. 2024-11-03 US) → correct entry opens.
+4. Offline for two days, write entries, go online → both queued entries commit with correct dateKey.
+5. Change phone TZ from EST→PST midday, open today → still correct local date.
+
+---
+
+## 9. Implementation Phases
+
+1. Add `dateKey` unique index.
+2. Refactor hooks to use `stableDateKey` ref.
+3. Implement midnight toast + CTA.
+4. Add TZ util wrapper (`lib/dateUtils.ts`).
+5. Update calendars to use aggregated indicator query.
+6. QA with automated Cypress tests covering checklist.
+
+---
+
+**Follow these rules rigorously to eliminate date-related UX issues.**
+asd

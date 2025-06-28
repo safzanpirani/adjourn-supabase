@@ -1,0 +1,267 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Adjourn - Shared EntryEditor Architecture
+
+**This rule documents the unified EntryEditor component architecture that provides consistent UI/UX across all entry editing contexts.**
+
+## Architecture Overview
+
+The project implements a **shared component architecture** where both `/today` and `/entry/[id]` pages use the same [EntryEditor.tsx](mdc:v0-app/components/EntryEditor.tsx) component. This ensures:
+- **Consistent UI/UX** across all editing contexts
+- **Single source of truth** for editor functionality
+- **Easier maintenance** and bug fixes
+- **Unified mobile optimizations**
+
+## EntryEditor Component - [EntryEditor.tsx](mdc:v0-app/components/EntryEditor.tsx)
+
+### Props Interface
+```typescript
+interface EntryEditorProps {
+  // Data props
+  entry: any
+  images: any[]
+  content: string
+  
+  // State handlers
+  setContent: (content: string) => void
+  
+  // Display configuration
+  wordCount: number
+  fontSize: number
+  fontFamily: string
+  formatDate: (date: Date) => string
+  
+  // Save state
+  isSaving: boolean
+  lastSaved: Date | null
+  
+  // Undo/Redo functionality
+  canUndo: boolean
+  canRedo: boolean
+  handleUndo: () => void
+  handleRedo: () => void
+  
+  // Preview mode
+  showLivePreview: boolean
+  setShowLivePreview: (show: boolean) => void
+  
+  // Image handling
+  getImageUrl: (path: string) => string
+  handleAddPhoto: (files: FileList) => Promise<void>
+  handleDeletePhoto: (id: string) => Promise<void>
+  
+  // Text formatting
+  formatText: (type: string) => void
+  insertHeading: (level: number) => void
+  insertList: () => void
+  
+  // Voice functionality
+  handleVoiceTranscript?: (transcript: string) => void
+  
+  // AI assistance
+  getDailyPrompt?: () => Promise<string>
+}
+```
+
+### Component Structure
+The EntryEditor encapsulates all editor functionality:
+
+#### Sticky Header
+```typescript
+<header className="sticky top-0 z-40 bg-[var(--color-background)]/95 backdrop-blur border-b border-gray-200 dark:border-gray-700">
+  {/* Date, word count, save status, preview toggle */}
+</header>
+```
+
+#### Main Content Area
+```typescript
+<main className="flex-1 px-4 pb-40 md:pb-4" data-scroll-area>
+  {/* Daily prompt (if provided) */}
+  {/* Main textarea editor */}
+  {/* Live preview (if enabled) */}
+  {/* Polaroid gallery (if images exist) */}
+</main>
+```
+
+#### Mobile Formatting Toolbar
+```typescript
+<div className="md:hidden fixed bottom-16 left-0 right-0 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 p-2 safe-area-pb z-20">
+  {/* Formatting buttons: Bold, Italic, List, etc. */}
+</div>
+```
+
+#### Floating Camera Button
+```typescript
+<div className="md:hidden fixed bottom-20 right-4 z-30">
+  {/* Camera/photo upload button */}
+</div>
+```
+
+## Page Implementation Patterns
+
+### Today Page - [today/page.tsx](mdc:v0-app/app/today/page.tsx)
+```typescript
+function TodayPageContent() {
+  // Today-specific logic: get current day's entry
+  const { currentEntry, loading } = useTodayEntry()
+  
+  return (
+    <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
+      <DesktopSidebar currentPage="today" />
+      <div className="flex-1 flex flex-col">
+        <EntryEditor
+          entry={currentEntry}
+          // ... all required props
+          getDailyPrompt={getDailyPrompt} // Today-specific feature
+        />
+      </div>
+    </div>
+  )
+}
+```
+
+### Entry Page - [entry/[id]/page.tsx](mdc:v0-app/app/entry/[id]/page.tsx)
+```typescript
+function EntryPage() {
+  // Entry-specific logic: get entry by ID
+  const { entry, loading } = useEntry(params.id)
+  
+  return (
+    <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
+      <DesktopSidebar currentPage="entries" />
+      <div className="flex-1 flex flex-col">
+        <EntryEditor
+          entry={entry}
+          // ... all required props
+          // No getDailyPrompt - not applicable for historical entries
+        />
+      </div>
+    </div>
+  )
+}
+```
+
+## Mobile Layout Optimizations
+
+### Z-Index Hierarchy
+```css
+/* Sticky header - always visible */
+.sticky-header { z-index: 40; }
+
+/* Floating camera button */
+.camera-fab { z-index: 30; }
+
+/* Mobile formatting toolbar */
+.formatting-toolbar { z-index: 20; }
+
+/* Content area */
+.content { z-index: 10; }
+```
+
+### Responsive Spacing
+- **Mobile bottom padding**: `pb-40` to account for toolbar + navigation
+- **Desktop bottom padding**: `pb-4` minimal spacing
+- **Polaroid gallery margin**: `mb-24 md:mb-0` to stay above mobile toolbar
+
+### Touch Optimization
+- **Minimum touch targets**: 44px for all interactive elements
+- **Toolbar buttons**: `h-10 w-10` with proper spacing
+- **Safe area support**: `env(safe-area-inset-bottom)` handling
+
+## Key Features Unified
+
+### Auto-Save System
+- **1-second debounced** auto-save across both contexts
+- **Visual indicators** for save status (saving, saved, error)
+- **Optimistic updates** via React Query optimization
+
+### Image Management
+- **Consistent polaroid gallery** in both contexts
+- **Proper overflow handling** on mobile
+- **Touch-optimized interactions** (swipe, tap, long-press)
+
+### Text Formatting
+- **Unified toolbar** for mobile devices
+- **Consistent formatting functions** across contexts
+- **Keyboard shortcuts** work identically
+
+### Preview Mode
+- **Live markdown preview** toggle
+- **Side-by-side view** on desktop
+- **Full-screen preview** on mobile
+
+## Development Benefits
+
+### Maintenance Advantages
+- **Single point of updates** for editor functionality
+- **Consistent bug fixes** across all editing contexts
+- **Unified testing** approach for editor features
+
+### User Experience Benefits
+- **Familiar interface** when switching between contexts
+- **Consistent behavior** for all editor interactions
+- **No context-switching friction** for users
+
+### Mobile Optimizations
+- **Shared mobile fixes** benefit all editing contexts
+- **Consistent stacking** and z-index management
+- **Unified keyboard handling** across pages
+
+## Extension Patterns
+
+### Adding New Editor Features
+1. **Add to EntryEditor props** interface
+2. **Implement in EntryEditor** component
+3. **Pass from both pages** (today and entry)
+4. **Test in both contexts** to ensure consistency
+
+### Context-Specific Features
+```typescript
+// Conditional features based on props
+{getDailyPrompt && (
+  <div className="mb-4">
+    {/* Daily prompt UI - only shown on today page */}
+  </div>
+)}
+```
+
+### Future Editor Contexts
+When adding new editing contexts (e.g., templates, drafts):
+1. **Create new page** following the established pattern
+2. **Use EntryEditor** with appropriate props
+3. **Maintain desktop sidebar** + mobile navigation structure
+4. **Pass context-specific handlers** as needed
+
+## Component Dependencies
+
+### Required Components Used by EntryEditor
+- [polaroid-gallery.tsx](mdc:v0-app/components/polaroid-gallery.tsx) - Image carousel
+- [formatting-toolbar.tsx](mdc:v0-app/components/ui/formatting-toolbar.tsx) - Text formatting
+- [markdown-preview.tsx](mdc:v0-app/components/ui/markdown-preview.tsx) - Preview rendering
+- [voice-recorder.tsx](mdc:v0-app/components/voice-recorder.tsx) - Voice input
+- [bottom-navigation.tsx](mdc:v0-app/components/bottom-navigation.tsx) - Mobile navigation
+
+### External Dependencies
+- **React Query hooks** via [useOptimizedHooks.ts](mdc:v0-app/hooks/useOptimizedHooks.ts)
+- **Image handling** via [useImages.ts](mdc:v0-app/hooks/useImages.ts)
+- **Authentication** via [useAuth.ts](mdc:v0-app/hooks/useAuth.ts)
+
+## Testing Considerations
+
+### Cross-Context Testing
+- **Feature parity** testing between /today and /entry/[id]
+- **Mobile behavior** consistency across contexts
+- **Data persistence** in both editing scenarios
+
+### Regression Prevention
+- **Unified component** prevents divergent behavior
+- **Shared test suite** covers all editing contexts
+- **Props validation** ensures consistent interfaces
+
+---
+
+**This shared architecture provides the foundation for consistent, maintainable editor experiences across all entry editing contexts in Adjourn.**
+
