@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Camera, Bold, Italic, List, Undo, Redo, Sparkles, ArrowLeft, Upload } from "lucide-react"
+import { Camera, Undo, Redo, Sparkles, ArrowLeft, Upload } from "lucide-react"
 import { PolaroidGallery } from "@/components/polaroid-gallery"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
@@ -15,6 +15,7 @@ import { useTheme } from "@/components/theme-provider"
 import { useEntry } from "@/hooks/useOptimizedHooks"
 import { usePhotos } from "@/hooks/usePhotos"
 import { usePhotoUpload } from "@/hooks/usePhotoUpload"
+import { toast } from "@/hooks/use-toast"
 
 function EntryPageContent() {
   const params = useParams()
@@ -24,7 +25,7 @@ function EntryPageContent() {
   // Validate date format
   const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(date)
   
-  const { entry, updateEntry, createEntry, isUpdating, isLoading } = useEntry(date)
+  const { entry, updateEntry, createEntry, deleteEntry: removeEntry, isUpdating, isLoading } = useEntry(date)
   const { photos, deletePhoto, isDeleting } = usePhotos(entry?.id || null)
   const { uploadPhoto, uploadPhotos, isUploading } = usePhotoUpload()
   const [content, setContent] = useState("")
@@ -34,6 +35,8 @@ function EntryPageContent() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { fontSize } = useTheme()
+  const [history, setHistory] = useState<string[]>([""])
+  const [historyIndex, setHistoryIndex] = useState(0)
 
   // Redirect if invalid date
   useEffect(() => {
@@ -43,11 +46,15 @@ function EntryPageContent() {
     }
   }, [date, isValidDate, router])
 
-  // Initialize content when entry loads
+  // Initialize content when entry loads or switches to different entry
   useEffect(() => {
-    if (entry?.content) {
-      setContent(entry.content)
-    }
+    if (!entry?.content) return
+
+    if (entry.content === content) return
+
+    setContent(entry.content)
+    setHistory([entry.content])
+    setHistoryIndex(0)
   }, [entry])
 
   // Auto-save with 1-second debounce
@@ -166,33 +173,46 @@ function EntryPageContent() {
   }
 
   const handleVoiceTranscription = (text: string) => {
-    setContent((prev) => prev + (prev ? " " : "") + text)
+    updateContent(content + (content ? " " : "") + text)
   }
 
   const handleCopyNote = () => {
     navigator.clipboard.writeText(content)
-    // TODO: Show toast notification
+    toast({ description: "Note copied to clipboard" })
   }
 
   const handleDeleteNote = () => {
     if (confirm("Are you sure you want to delete this note?")) {
-      setContent("")
+      removeEntry()
+      updateContent("")
+      toast({ description: "Note deleted" })
     }
   }
 
   const handleUndo = () => {
-    // TODO: Implement undo functionality
-    console.log("Undo")
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1
+      setHistoryIndex(newIndex)
+      setContent(history[newIndex])
+    }
   }
 
   const handleRedo = () => {
-    // TODO: Implement redo functionality
-    console.log("Redo")
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1
+      setHistoryIndex(newIndex)
+      setContent(history[newIndex])
+    }
   }
 
-  const handleFormat = (type: "bold" | "italic" | "list") => {
-    // TODO: Implement text formatting
-    console.log(`Format: ${type}`)
+  const updateContent = (value: string) => {
+    setContent(value)
+    setHistory((prev) => {
+      const newHist = prev.slice(0, historyIndex + 1)
+      newHist.push(value)
+      return newHist.length > 100 ? newHist.slice(newHist.length - 100) : newHist
+    })
+    setHistoryIndex((idx) => idx + 1)
   }
 
   // Drag and drop handlers
@@ -272,20 +292,11 @@ function EntryPageContent() {
             >
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <h1 className="font-mono text-lg text-[var(--color-text)]">{formatDate()}</h1>
+            <h1 className="font-mono text-base md:text-lg text-[var(--color-text)]">{formatDate()}</h1>
           </div>
           <div className="flex items-center gap-3">
             {/* Desktop formatting buttons */}
             <div className="hidden md:flex items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={() => handleFormat("bold")} className="h-8 w-8">
-                <Bold className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => handleFormat("italic")} className="h-8 w-8">
-                <Italic className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => handleFormat("list")} className="h-8 w-8">
-                <List className="w-4 h-4" />
-              </Button>
               <Button variant="ghost" size="icon" onClick={handleUndo} className="h-8 w-8">
                 <Undo className="w-4 h-4" />
               </Button>
@@ -341,7 +352,7 @@ function EntryPageContent() {
           <textarea
             ref={textareaRef}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => updateContent(e.target.value)}
             className="w-full h-full font-mono text-[var(--color-text)] bg-transparent resize-none focus:outline-none leading-relaxed"
             placeholder={getRandomPlaceholder()}
             style={{
@@ -391,15 +402,6 @@ function EntryPageContent() {
 
         {/* Mobile Formatting Toolbar */}
         <div className="md:hidden fixed bottom-16 left-0 right-0 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 p-2 flex gap-2 justify-center">
-          <Button variant="ghost" size="icon" onClick={() => handleFormat("bold")} className="h-10 w-10">
-            <Bold className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleFormat("italic")} className="h-10 w-10">
-            <Italic className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleFormat("list")} className="h-10 w-10">
-            <List className="w-4 h-4" />
-          </Button>
           <Button variant="ghost" size="icon" onClick={handleUndo} className="h-10 w-10">
             <Undo className="w-4 h-4" />
           </Button>
