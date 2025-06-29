@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Providers } from "@/components/providers"
+import SwRegister from "@/components/sw-register"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -27,7 +28,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Adjourn" />
-        <link rel="apple-touch-icon" href="/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/adjourn-typewriter.png" />
       </head>
       <body
         className={inter.className}
@@ -36,6 +37,7 @@ export default function RootLayout({
         <ThemeProvider>
           <Providers>
             {children}
+            <SwRegister />
           </Providers>
         </ThemeProvider>
       </body>

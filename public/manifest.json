@@ -1,0 +1,22 @@
+{
+  "name": "Adjourn",
+  "short_name": "Adjourn",
+  "description": "A peaceful space for your thoughts",
+  "start_url": "/today",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAFAF8",
+  "theme_color": "#5D6D4E",
+  "icons": [
+    {
+      "src": "/adjourn-typewriter.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/adjourn-typewriter.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+} 
