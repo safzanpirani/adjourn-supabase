@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { supabase } from '@/lib/supabase'
 
+interface ChatMessage {
+  text: string
+  isUser: boolean
+}
+
 // Rate limiting store (in production, use Redis or database)
-const rateLimitStore = new Map<string, { count: number; lastReset: number }>()
+// const rateLimitStore = new Map<string, { count: number; lastReset: number }>()
 
-const REQUESTS_PER_HOUR = 10
-const HOUR_IN_MS = 60 * 60 * 1000
+// const REQUESTS_PER_HOUR = 20 // Increased for better UX
+// const HOUR_IN_MS = 60 * 60 * 1000
 
-function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
+/* function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
   const now = Date.now()
   const userLimit = rateLimitStore.get(userId) || { count: 0, lastReset: now }
   
@@ -26,7 +31,7 @@ function checkRateLimit(userId: string): { allowed: boolean; remaining: number }
   rateLimitStore.set(userId, userLimit)
   
   return { allowed: true, remaining: REQUESTS_PER_HOUR - userLimit.count }
-}
+} */
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,57 +49,136 @@ export async function POST(request: NextRequest) {
     }
 
     // Check rate limit
-    const rateLimit = checkRateLimit(user.id)
+    /* const rateLimit = checkRateLimit(user.id)
     if (!rateLimit.allowed) {
       return NextResponse.json(
-        { error: 'Hourly AI request limit reached (10 requests/hour)' }, 
+        { error: `Hourly AI request limit reached (${REQUESTS_PER_HOUR} requests/hour)` }, 
         { status: 429 }
       )
-    }
+    } */
 
     // Parse request body
-    const { content, context } = await request.json()
+    const { content, context, type = 'quick', conversationHistory = [] }: {
+      content: string
+      context?: string  
+      type?: 'quick' | 'chat'
+      conversationHistory?: ChatMessage[]
+    } = await request.json()
     
     if (!content || content.length === 0) {
       return NextResponse.json({ error: 'Content is required' }, { status: 400 })
     }
 
     // Limit content length to prevent excessive usage
-    const maxContentLength = 2000
+    const maxContentLength = type === 'chat' ? 1000 : 500
     const truncatedContent = content.length > maxContentLength 
       ? content.substring(0, maxContentLength) + '...'
       : content
 
-    // Initialize Gemini 2.0 Flash
+    // Initialize Gemini 2.5 Flash (latest model)
     if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json({ error: 'AI service not configured' }, { status: 500 })
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' })
+    
+    // Use Gemini 2.5 Flash - the latest and best model
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-2.0-flash',
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.8,
+        topK: 40,
+        maxOutputTokens: type === 'chat' ? 300 : 150,
+      },
+    })
 
-    const prompt = `You are Muse, a thoughtful journaling companion. Based on this journal entry, provide a brief, empathetic response that encourages reflection or offers gentle insight.
+    let prompt = ''
+    let result
+
+    if (type === 'quick') {
+      // Quick Muse - for word suggestions and quick help
+      prompt = `You are Muse, a helpful writing assistant for journaling. The user needs a quick suggestion or help with a specific word/phrase.
 
 ${context ? `Context: ${context}` : ''}
 
-Entry: ${truncatedContent}
+User request: ${truncatedContent}
 
-Response (keep under 100 words, be warm and encouraging):`
+Provide a brief, helpful response (1-2 sentences max). Be concise and actionable.`
 
-    const result = await model.generateContent(prompt)
+      result = await model.generateContent(prompt)
+    } else if (type === 'chat') {
+      // Full conversational AI with history
+      const systemMessage = `You are Muse, a thoughtful and empathetic journaling companion. You help people reflect on their thoughts, feelings, and experiences through meaningful conversation.
+
+${context ? `Here is the user's journal entry for today (treat this as private context, do not reveal verbatim unless asked):\n\n"""\n${context}\n"""\n` : ''}
+Your role:
+- Ask thoughtful questions that encourage deeper reflection
+- Provide gentle insights and perspectives
+- Help users explore their emotions and thoughts
+- Suggest journaling prompts when appropriate
+- Be warm, supportive, and non-judgmental
+- Keep responses conversational and under 2-3 sentences unless the user asks for more detail
+
+Remember: You're here to facilitate self-discovery and reflection, not to provide therapy or medical advice.`
+
+      // Create chat session with history including system message
+      const chatHistory = [
+        {
+          role: 'user' as const,
+          parts: [{ text: systemMessage }]
+        },
+        {
+          role: 'model' as const,
+          parts: [{ text: 'I understand. I\'m here to be your thoughtful journaling companion, ready to listen and help you explore your thoughts and feelings through gentle conversation.' }]
+        },
+        ...conversationHistory.map((msg: ChatMessage) => ({
+          role: msg.isUser ? 'user' as const : 'model' as const,
+          parts: [{ text: msg.text }]
+        }))
+      ]
+
+      const chat = model.startChat({
+        history: chatHistory,
+        generationConfig: {
+          temperature: 0.8,
+          topP: 0.9,
+          maxOutputTokens: 300,
+        },
+      })
+
+      result = await chat.sendMessage(truncatedContent)
+    } else {
+      return NextResponse.json({ error: 'Invalid request type' }, { status: 400 })
+    }
+
     const response = result.response.text()
-
-    // Cache the response to prevent duplicate requests
-    // TODO: Store in database once backend is ready
 
     return NextResponse.json({
       response,
-      requestsRemaining: rateLimit.remaining,
+      requestsRemaining: 999, // No limit for now
       timestamp: new Date().toISOString(),
+      type,
     })
 
   } catch (error) {
     console.error('Muse AI error:', error)
+    
+    // Handle specific Google AI errors
+    if (error instanceof Error) {
+      if (error.message.includes('quota')) {
+        return NextResponse.json(
+          { error: 'AI service quota exceeded. Please try again later.' }, 
+          { status: 429 }
+        )
+      }
+      if (error.message.includes('safety')) {
+        return NextResponse.json(
+          { error: 'Content was blocked for safety reasons. Please rephrase your message.' }, 
+          { status: 400 }
+        )
+      }
+    }
     
     // Don't expose internal errors to client
     return NextResponse.json(

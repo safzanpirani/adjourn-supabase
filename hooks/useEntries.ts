@@ -90,9 +90,26 @@ export const useEntries = (options: UseEntriesOptions = {}) => {
           ...entry,
           preview,
           wordCount,
-          hasPhotos: false, // TODO: Implement photo counting when photos are ready
+          hasPhotos: false, // Will be updated below with real photo data
         }
       })
+
+      // Get photo data for the entries
+      if (processedEntries.length > 0) {
+        const entryIds = processedEntries.map(entry => entry.id)
+        const { data: photoData } = await supabase
+          .from('photos')
+          .select('entry_id')
+          .in('entry_id', entryIds)
+
+        // Create set of entry IDs that have photos
+        const entriesWithPhotos = new Set((photoData || []).map(photo => photo.entry_id))
+        
+        // Update hasPhotos flag
+        processedEntries.forEach(entry => {
+          entry.hasPhotos = entriesWithPhotos.has(entry.id)
+        })
+      }
 
       return {
         entries: processedEntries,
@@ -118,30 +135,50 @@ export const useEntriesForMonth = (year: number, month: number) => {
     queryFn: async (): Promise<Record<string, { hasEntry: boolean; hasPhotos: boolean; wordCount: number }>> => {
       if (!user?.id) return {}
 
-      const { data, error } = await supabase
+      // Query entries for the month
+      const { data: entriesData, error: entriesError } = await supabase
         .from('entries')
-        .select('date, content')
+        .select('id, date, content')
         .eq('user_id', user.id)
         .gte('date', startDate)
         .lte('date', endDate)
 
-      if (error) throw error
+      if (entriesError) throw entriesError
+
+      // Query photos for entries in this month
+      const entryIds = (entriesData || []).map(entry => entry.id)
+      let photosData: any[] = []
+      
+      if (entryIds.length > 0) {
+        const { data: photoResults, error: photosError } = await supabase
+          .from('photos')
+          .select('entry_id')
+          .in('entry_id', entryIds)
+
+        if (photosError) throw photosError
+        photosData = photoResults || []
+      }
+
+      // Create a set of entry IDs that have photos
+      const entriesWithPhotos = new Set(photosData.map(photo => photo.entry_id))
 
       // Convert to object for easy lookup
       const entriesMap: Record<string, { hasEntry: boolean; hasPhotos: boolean; wordCount: number }> = {}
       
-      (data || []).forEach((entry: { date: string; content: string | null }) => {
-        const wordCount = (entry.content || '')
-          .trim()
-          .split(/\s+/)
-          .filter((word: string) => word.length > 0).length
+      if (entriesData) {
+        entriesData.forEach((entry: { id: string; date: string; content: string | null }) => {
+          const wordCount = (entry.content || '')
+            .trim()
+            .split(/\s+/)
+            .filter((word: string) => word.length > 0).length
 
-        entriesMap[entry.date] = {
-          hasEntry: true,
-          hasPhotos: false, // TODO: Implement when photos are ready
-          wordCount
-        }
-      })
+          entriesMap[entry.date] = {
+            hasEntry: true,
+            hasPhotos: entriesWithPhotos.has(entry.id),
+            wordCount
+          }
+        })
+      }
 
       return entriesMap
     },

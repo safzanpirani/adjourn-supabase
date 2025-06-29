@@ -139,4 +139,99 @@ export const usePhotos = (entryId: string | null): UsePhotosResult => {
     isDeleting: deletePhotoMutation.isPending,
     isUpdating: updatePhotoCaptionMutation.isPending,
   }
+}
+
+// New hook for gallery - fetches all photos with entry information
+interface GalleryPhotoEntry {
+  entry_id: string
+  entry_date: string
+  entry_content: string | null
+  photos: Photo[]
+}
+
+interface UseGalleryPhotosResult {
+  photoEntries: GalleryPhotoEntry[]
+  isLoading: boolean
+  error: Error | null
+  totalPhotos: number
+}
+
+export const useGalleryPhotos = (searchQuery: string = ''): UseGalleryPhotosResult => {
+  const { user } = useAuth()
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['gallery-photos', user?.id, searchQuery],
+    queryFn: async (): Promise<{ photoEntries: GalleryPhotoEntry[]; totalPhotos: number }> => {
+      if (!user?.id) return { photoEntries: [], totalPhotos: 0 }
+
+      // Fetch photos with their entry information
+      let query = supabase
+        .from('photos')
+        .select(`
+          id, url, caption, width, height, file_size, created_at,
+          entry_id,
+          entries!inner(id, date, content)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      // Apply search filter if provided
+      if (searchQuery.trim()) {
+        query = query.or(`caption.ilike.%${searchQuery}%,entries.content.ilike.%${searchQuery}%`)
+      }
+
+      const { data: photos, error } = await query
+
+      if (error) throw error
+
+      // Group photos by entry
+      const entriesMap = new Map<string, GalleryPhotoEntry>()
+      let totalPhotos = 0
+
+      photos?.forEach((photo: any) => {
+        totalPhotos++
+        const entryId = photo.entry_id
+        
+        if (!entriesMap.has(entryId)) {
+          entriesMap.set(entryId, {
+            entry_id: entryId,
+            entry_date: photo.entries.date,
+            entry_content: photo.entries.content,
+            photos: []
+          })
+        }
+
+        const photoData: Photo = {
+          id: photo.id,
+          user_id: user.id,
+          entry_id: photo.entry_id,
+          url: photo.url,
+          caption: photo.caption,
+          width: photo.width,
+          height: photo.height,
+          file_size: photo.file_size,
+          created_at: photo.created_at
+        }
+
+        entriesMap.get(entryId)!.photos.push(photoData)
+      })
+
+      // Convert to array and sort by entry date (newest first)
+      const photoEntries = Array.from(entriesMap.values()).sort((a, b) => 
+        new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime()
+      )
+
+      return { photoEntries, totalPhotos }
+    },
+    enabled: !!user?.id,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 2 * 60 * 1000, // Keep in cache for 2 minutes
+  })
+
+  return {
+    photoEntries: data?.photoEntries || [],
+    isLoading,
+    error,
+    totalPhotos: data?.totalPhotos || 0,
+  }
 } 

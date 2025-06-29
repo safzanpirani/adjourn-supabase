@@ -8,6 +8,9 @@ import { BottomNavigation } from "@/components/bottom-navigation"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
 import { VoiceRecorder } from "@/components/voice-recorder"
 import { useRouter } from "next/navigation"
+import { useMuseAI } from "@/hooks/useMuseAI"
+import { useTodayEntry } from "@/hooks/useOptimizedHooks"
+import { AlertCircle, Loader2 } from "lucide-react"
 
 interface Message {
   id: number
@@ -18,6 +21,8 @@ interface Message {
 
 export default function MusePage() {
   const router = useRouter()
+  const { chatMessage, isLoading, error, requestsRemaining } = useMuseAI()
+  const { entry: todayEntry } = useTodayEntry()
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
@@ -28,6 +33,7 @@ export default function MusePage() {
   ])
   const [inputText, setInputText] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
 
   const suggestions = [
     "Help me reflect on today",
@@ -37,11 +43,14 @@ export default function MusePage() {
   ]
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    // Scroll to bottom with extra padding to avoid input blocking
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight + 200
+    }
   }, [messages])
 
-  const handleSendMessage = () => {
-    if (!inputText.trim()) return
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || isLoading) return
 
     const userMessage: Message = {
       id: messages.length + 1,
@@ -51,18 +60,55 @@ export default function MusePage() {
     }
 
     setMessages((prev) => [...prev, userMessage])
+    const currentInput = inputText
     setInputText("")
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      // Convert messages to conversation history format (excluding the initial greeting)
+      const conversationHistory = messages.slice(1).map(msg => ({
+        id: msg.id,
+        text: msg.text,
+        isUser: msg.isUser,
+        timestamp: msg.timestamp
+      }))
+
+      // Add the current user message to history for context
+      conversationHistory.push({
+        id: messages.length + 1,
+        text: currentInput,
+        isUser: true,
+        timestamp: new Date()
+      })
+
+      // Call real AI API
+      const result = await chatMessage(
+        currentInput, 
+        conversationHistory,
+        todayEntry?.content || "The user is reflecting on their day in their journal."
+      )
+      
       const aiResponse: Message = {
         id: messages.length + 2,
-        text: "That's a wonderful thought! Let me help you explore that further. What emotions are you feeling about this situation?",
+        text: result.response,
         isUser: false,
         timestamp: new Date(),
       }
+      
       setMessages((prev) => [...prev, aiResponse])
-    }, 1000)
+      
+    } catch (err) {
+      console.error('Muse AI error:', err)
+      
+      // Add error message to chat
+      const errorMessage: Message = {
+        id: messages.length + 2,
+        text: "I'm having trouble connecting right now. Please try again in a moment.",
+        isUser: false,
+        timestamp: new Date(),
+      }
+      
+      setMessages((prev) => [...prev, errorMessage])
+    }
   }
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -112,14 +158,40 @@ export default function MusePage() {
             </div>
             <div>
               <h1 className="font-mono text-lg text-[var(--color-text)]">Muse AI Chat</h1>
-              <p className="font-mono text-xs text-[var(--color-text-secondary)]">Your creative writing companion</p>
+              <p className="font-mono text-xs text-[var(--color-text-secondary)]">
+                Your creative writing companion • {requestsRemaining} requests remaining
+              </p>
             </div>
           </div>
         </header>
 
-        {/* Messages - Centered on Desktop */}
-        <div className="flex-1 overflow-y-auto pb-32 md:pb-4">
+        {/* Messages - Centered on Desktop with proper spacing for input */}
+        <div 
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto pb-44 md:pb-32"
+          style={{ scrollBehavior: 'smooth' }}
+        >
           <div className="max-w-3xl mx-auto p-4 space-y-4">
+            {/* Error display */}
+            {error && (
+              <div className="flex justify-center">
+                <div className="max-w-[80%] p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500" />
+                    <span className="text-sm text-red-700 dark:text-red-300 font-mono">
+                      {typeof error === 'string' 
+                        ? error 
+                        : 'error' in error 
+                          ? error.error 
+                          : 'message' in error 
+                            ? error.message 
+                            : 'An error occurred'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.isUser ? "justify-end" : "justify-start"}`}>
                 <div
@@ -136,13 +208,32 @@ export default function MusePage() {
                 </div>
               </div>
             ))}
-            <div ref={messagesEndRef} />
+            
+            {/* Loading indicator */}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] md:max-w-[70%] p-3 rounded-2xl rounded-bl-md bg-[var(--color-card-background)] border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary)]" />
+                    <span className="text-sm text-[var(--color-text-secondary)] font-mono">
+                      Muse is thinking...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div ref={messagesEndRef} className="h-4" />
           </div>
         </div>
 
-        {/* Suggestions - Moved above input */}
+        {/* Input Container - Fixed at bottom with suggestions above it */}
+        <div className="fixed bottom-16 md:bottom-4 left-0 right-0 md:relative md:bottom-auto z-20">
+          <div className="max-w-3xl mx-auto px-4">
+            
+            {/* Suggestions - Positioned directly above input */}
         {messages.length === 1 && (
-          <div className="max-w-3xl mx-auto px-4 pb-4">
+              <div className="mb-3">
             <div className="flex flex-wrap gap-2 justify-center">
               {suggestions.map((suggestion, index) => (
                 <Button
@@ -150,7 +241,7 @@ export default function MusePage() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleSuggestionClick(suggestion)}
-                  className="font-mono text-xs bg-white dark:bg-gray-800 text-[var(--color-primary)] border-[var(--color-primary)]/30 hover:bg-[var(--color-primary)]/10"
+                      className="font-mono text-xs bg-white/90 dark:bg-gray-800/90 text-[var(--color-primary)] border-[var(--color-primary)]/30 hover:bg-[var(--color-primary)]/10 backdrop-blur-sm"
                 >
                   {index === 0 && <Heart className="w-3 h-3 mr-1" />}
                   {index === 1 && <Lightbulb className="w-3 h-3 mr-1" />}
@@ -162,26 +253,30 @@ export default function MusePage() {
           </div>
         )}
 
-        {/* Input - Fixed at bottom with proper spacing */}
-        <div className="fixed bottom-16 md:bottom-4 left-0 right-0 md:relative md:bottom-auto z-20">
-          <div className="max-w-3xl mx-auto p-4">
-            <div className="bg-[var(--color-card-background)] backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-lg">
+            {/* Input Area */}
+            <div className="bg-[var(--color-card-background)]/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-lg">
               <div className="flex gap-2">
                 <Input
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   placeholder="Share your thoughts..."
                   className="flex-1 font-mono bg-transparent border-0 focus:ring-0 focus:outline-none text-[var(--color-text)]"
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                  onKeyPress={(e) => e.key === "Enter" && !isLoading && requestsRemaining > 0 && handleSendMessage()}
                 />
                 <VoiceRecorder onTranscription={handleVoiceTranscription} size="sm" />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!inputText.trim()}
+                  disabled={!inputText.trim() || isLoading || requestsRemaining <= 0}
                   size="sm"
                   className="bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-white px-4"
                 >
-                  <Send className="w-4 h-4" />
+                  {isLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : requestsRemaining <= 0 ? (
+                    <AlertCircle className="w-4 h-4" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                 </Button>
               </div>
             </div>

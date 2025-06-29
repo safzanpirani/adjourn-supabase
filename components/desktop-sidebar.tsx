@@ -2,8 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Search, Plus, Book, Images, ChevronLeft, ChevronRight, Sparkles, User } from "lucide-react"
+import { Plus, Book, Images, ChevronLeft, ChevronRight, Sparkles, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { StreakDisplay } from "./streak-display"
 import { useStreaks, useEntries, useEntriesForMonth } from "@/hooks/useOptimizedHooks"
@@ -15,11 +14,10 @@ interface DesktopSidebarProps {
 export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
   const router = useRouter()
   const { streaks, isLoading: streaksLoading } = useStreaks()
-  const [searchQuery, setSearchQuery] = useState("")
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
   // Get real recent entries data
-  const { data: entriesResult } = useEntries({ limit: 4 })
+  const { data: entriesResult } = useEntries({ limit: 5 })
   const recentEntries = entriesResult?.entries || []
 
   // Get entries for current month
@@ -87,7 +85,7 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
   const monthName = currentMonth.toLocaleDateString("en-US", { month: "short", year: "numeric" })
 
   return (
-    <div className="hidden md:flex w-64 bg-[var(--color-background)] border-r border-gray-200 dark:border-gray-700 flex-col h-screen">
+    <div className="hidden md:flex w-64 bg-[var(--color-background)] border-r border-gray-200 dark:border-gray-700 flex-col h-full">
       {/* Header with Streak */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="mb-4">
@@ -103,25 +101,14 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
           )}
         </div>
 
-        {/* New Journal Note Button */}
+        {/* Today's Journal Note Button */}
         <Button
           onClick={() => router.push("/today")}
-          className="w-full bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-[var(--color-button-text)] font-mono mb-3"
+          className="w-full bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 text-[var(--color-button-text)] font-mono"
         >
           <Plus className="w-4 h-4 mr-2" />
-          New Journal Note
+          Today's Journal Note
         </Button>
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[var(--color-text-secondary)]" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search entries..."
-            className="pl-10 font-mono bg-[var(--color-surface)] border-[var(--color-text-secondary)]/30 focus:border-[var(--color-primary)] text-sm text-[var(--color-text)]"
-          />
-        </div>
       </div>
 
       {/* Navigation Buttons */}
@@ -187,8 +174,8 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
 
         {/* Mini calendar grid */}
         <div className="grid grid-cols-7 gap-1 text-xs">
-          {["S", "M", "T", "W", "T", "F", "S"].map((day) => (
-            <div key={day} className="text-center font-mono text-[var(--color-text-secondary)] py-1">
+          {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+            <div key={index} className="text-center font-mono text-[var(--color-text-secondary)] py-1">
               {day}
             </div>
           ))}
@@ -198,29 +185,31 @@ export function DesktopSidebar({ currentPage }: DesktopSidebarProps) {
                 <button
                   onClick={() => handleDateClick(day.dateStr)}
                   className={`
-                  w-full h-full rounded text-xs font-mono relative transition-all duration-200
+                  w-full h-full rounded text-xs font-mono relative transition-all duration-200 hover:scale-105
                   ${
                     day.isToday
-                      ? "bg-[var(--color-primary)] text-[var(--color-button-text)]"
+                      ? "bg-[var(--color-primary)] text-[var(--color-button-text)] hover:shadow-md"
                       : day.hasEntry
-                        ? "bg-[var(--color-accent)]/20 text-[var(--color-text)] hover:bg-[var(--color-accent)]/30"
-                        : "text-[var(--color-text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800"
+                        ? "bg-[var(--color-accent)]/20 text-[var(--color-text)] hover:bg-[var(--color-accent)]/50 hover:border hover:border-[var(--color-accent)]"
+                        : "text-[var(--color-text-secondary)] hover:bg-gray-200 dark:hover:bg-gray-700 hover:border hover:border-gray-300 dark:hover:border-gray-600"
                   }
                 `}
                 >
                   {day.date}
                   {/* Tiny indicators */}
-                  <div className="absolute bottom-0 right-0 flex">
+                  <div className="absolute bottom-0 right-0 flex gap-0.5">
                     {day.hasEntry && (
                       <div
-                        className={`w-1 h-1 rounded-full ${
+                        className={`w-1.5 h-1.5 rounded-full ${
                           day.isToday ? "bg-[var(--color-button-text)]" : "bg-[var(--color-accent)]"
                         }`}
                       />
                     )}
                     {day.hasPhotos && (
                       <div
-                        className={`w-1 h-1 rounded-full ml-0.5 ${day.isToday ? "bg-yellow-200" : "bg-yellow-500"}`}
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          day.isToday ? "bg-yellow-200" : "bg-yellow-500"
+                        }`}
                       />
                     )}
                   </div>

@@ -8,15 +8,23 @@ interface VoiceRecorderProps {
   onTranscription: (text: string) => void
   className?: string
   size?: "sm" | "md" | "lg"
+  disabled?: boolean
 }
 
-export function VoiceRecorder({ onTranscription, className = "", size = "md" }: VoiceRecorderProps) {
+export function VoiceRecorder({ 
+  onTranscription, 
+  className = "", 
+  size = "md",
+  disabled = false 
+}: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
   const startRecording = async () => {
+    if (disabled) return
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream)
@@ -28,7 +36,8 @@ export function VoiceRecorder({ onTranscription, className = "", size = "md" }: 
       }
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" })
+        const mimeType = mediaRecorder.mimeType || "audio/wav"
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
         await transcribeAudio(audioBlob)
         stream.getTracks().forEach((track) => track.stop())
       }
@@ -36,7 +45,7 @@ export function VoiceRecorder({ onTranscription, className = "", size = "md" }: 
       mediaRecorder.start()
       setIsRecording(true)
     } catch (error) {
-      console.error("Error starting recording:", error)
+      alert('Failed to start recording. Please check microphone permissions.')
     }
   }
 
@@ -50,23 +59,24 @@ export function VoiceRecorder({ onTranscription, className = "", size = "md" }: 
 
   const transcribeAudio = async (audioBlob: Blob) => {
     try {
-      // Convert blob to base64 for API call
       const formData = new FormData()
-      formData.append("file", audioBlob, "audio.wav")
-      formData.append("model", "whisper-large-v3")
+      const extension = audioBlob.type.includes('webm') ? 'webm' : 'wav'
+      formData.append("file", audioBlob, `audio.${extension}`)
 
-      // Simulate Groq Whisper API call
-      // In a real app, you'd call: https://api.groq.com/openai/v1/audio/transcriptions
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      })
 
-      // Mock transcription result
-      const mockTranscription =
-        "This is a sample transcription of what you just said. The voice recognition is working!"
+      const data = await response.json()
 
-      onTranscription(mockTranscription)
+      if (data.success && data.text) {
+        onTranscription(data.text)
+      } else {
+        alert(`Transcription failed: ${data.error || "Unknown error"}`)
+      }
     } catch (error) {
-      console.error("Error transcribing audio:", error)
-      onTranscription("Sorry, I couldn't transcribe that. Please try again.")
+      alert('Network error during transcription')
     } finally {
       setIsProcessing(false)
     }

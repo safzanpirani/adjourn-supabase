@@ -74,7 +74,7 @@ function CalendarPageContent() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
+      <div className="flex h-[100dvh] bg-[var(--color-background)]">
         <DesktopSidebar currentPage="calendar" />
         <div className="flex-1 flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-[var(--color-primary)]/30 border-t-[var(--color-primary)] rounded-full animate-spin" />
@@ -85,12 +85,12 @@ function CalendarPageContent() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
+    <div className="flex h-[100dvh] bg-[var(--color-background)]">
       <DesktopSidebar currentPage="calendar" />
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-700">
+        <header className="flex-shrink-0 p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-700">
           <Button variant="ghost" size="icon" onClick={() => navigateMonth("prev")} className="h-10 w-10">
             <ChevronLeft className="w-5 h-5" />
           </Button>
@@ -103,62 +103,64 @@ function CalendarPageContent() {
         </header>
 
         {/* Calendar Grid */}
-        <main className="flex-1 p-4 pb-20 md:pb-4">
-          {/* Day labels */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-              <div key={day} className="text-center font-mono text-sm text-[var(--color-text-secondary)] py-2">
-                {day}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar days */}
-          <div className="grid grid-cols-7 gap-1">
-            {getDaysInMonth().map((day, index) => (
-              <div key={index} className="aspect-square">
-                {day && (
-                  <button
-                    onClick={() => handleDateClick(day.date)}
-                    className={`
-                    w-full h-full rounded-lg font-mono text-sm relative transition-all duration-200
-                    ${
-                      day.isToday
-                        ? "bg-[var(--color-primary)] text-white shadow-lg"
-                        : day.hasEntry
-                          ? "bg-[var(--color-accent)]/20 text-[var(--color-text)] hover:bg-[var(--color-accent)]/30"
-                          : "text-[var(--color-text-secondary)] hover:bg-gray-100 dark:hover:bg-gray-800"
-                    }
-                  `}
-                  >
-                    <span className="absolute top-1 left-1">{day.date}</span>
-
-                    {/* Entry indicators */}
-                    <div className="absolute bottom-1 right-1 flex gap-1">
-                      {day.hasEntry && (
-                        <div
-                          className={`w-2 h-2 rounded-full ${day.isToday ? "bg-white" : "bg-[var(--color-accent)]"}`}
-                        />
-                      )}
-                      {day.hasPhotos && (
-                        <div className={`w-2 h-2 rounded-full ${day.isToday ? "bg-yellow-200" : "bg-yellow-500"}`} />
-                      )}
-                    </div>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Legend */}
-          <div className="mt-6 flex justify-center gap-6 text-xs font-mono text-[var(--color-text-secondary)]">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-[var(--color-accent)]" />
-              <span>Has entry</span>
+        <main className="flex-1 overflow-y-auto p-4 pb-20 md:pb-4">
+          <div className="max-w-4xl mx-auto">
+            {/* Day labels */}
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <div key={day} className="text-center font-mono text-sm text-[var(--color-text-secondary)] py-2">
+                  {day}
+                </div>
+              ))}
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <span>Has photos</span>
+
+            {/* Calendar days */}
+            <div className="grid grid-cols-7 gap-1">
+              {getDaysInMonth().map((day, index) => (
+                <div key={index} className="aspect-square md:aspect-auto md:h-20">
+                  {day && (
+                    <button
+                      onClick={() => handleDateClick(day.date)}
+                      className={`
+                      w-full h-full rounded-lg font-mono text-sm relative transition-all duration-200 hover:scale-105
+                      ${
+                        day.isToday
+                          ? "bg-[var(--color-primary)] text-white shadow-lg hover:shadow-xl"
+                          : day.hasEntry
+                            ? "bg-[var(--color-accent)]/20 text-[var(--color-text)] hover:bg-[var(--color-accent)]/50 hover:border hover:border-[var(--color-accent)]"
+                            : "text-[var(--color-text-secondary)] hover:bg-gray-200 dark:hover:bg-gray-700 hover:border hover:border-gray-300 dark:hover:border-gray-600"
+                      }
+                    `}
+                    >
+                      <span className="absolute top-1 left-1">{day.date}</span>
+
+                      {/* Entry indicators */}
+                      <div className="absolute bottom-1 right-1 flex gap-1">
+                        {day.hasEntry && (
+                          <div
+                            className={`w-2 h-2 rounded-full ${day.isToday ? "bg-white" : "bg-[var(--color-accent)]"}`}
+                          />
+                        )}
+                        {day.hasPhotos && (
+                          <div className={`w-2 h-2 rounded-full ${day.isToday ? "bg-yellow-200" : "bg-yellow-500"}`} />
+                        )}
+                      </div>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Legend */}
+            <div className="mt-6 flex justify-center gap-6 text-xs font-mono text-[var(--color-text-secondary)]">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[var(--color-accent)]" />
+                <span>Has entry</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                <span>Has photos</span>
+              </div>
             </div>
           </div>
         </main>

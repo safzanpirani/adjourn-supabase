@@ -177,6 +177,14 @@ export type VoiceRecording = Database['public']['Tables']['voice_recordings']['R
 export type EntryListItem = Pick<Entry, 'id' | 'date' | 'content' | 'updated_at'>
 export type PhotoListItem = Pick<Photo, 'id' | 'url' | 'caption' | 'created_at'>
 
+// Simple Voice Recorder Props
+export interface VoiceRecorderProps {
+  onTranscription: (text: string) => void
+  className?: string
+  size?: 'sm' | 'md' | 'lg'
+  disabled?: boolean
+}
+
 // Helper for today's date key
 export const getTodayDateKey = (): string => {
   return new Date().toISOString().split('T')[0]

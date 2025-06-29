@@ -16,6 +16,7 @@ import { useTodayEntry } from "@/hooks/useOptimizedHooks"
 import { usePhotos } from "@/hooks/usePhotos"
 import { usePhotoUpload } from "@/hooks/usePhotoUpload"
 
+
 function TodayPageContent() {
   const router = useRouter()
   const { entry, updateEntry, createEntry, isUpdating, isLoading } = useTodayEntry()
@@ -151,7 +152,49 @@ function TodayPageContent() {
   }
 
   const handleVoiceTranscription = (text: string) => {
-    setContent((prev) => prev + (prev ? " " : "") + text)
+    const textarea = textareaRef.current
+    
+    if (!textarea) {
+      // Fallback: append with smart spacing
+      const needsSpace = content.trim() && !content.endsWith(' ') && !content.endsWith('\n')
+      setContent(prev => prev + (needsSpace ? " " : "") + text)
+      return
+    }
+
+    // Insert at cursor position with smart spacing
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    
+    // Smart spacing logic
+    const beforeCursor = content.substring(0, start)
+    const afterCursor = content.substring(end)
+    
+    const needsSpaceBefore = beforeCursor.trim() && 
+                            !beforeCursor.endsWith(' ') && 
+                            !beforeCursor.endsWith('\n')
+    const needsSpaceAfter = afterCursor.trim() && 
+                           !afterCursor.startsWith(' ') && 
+                           !afterCursor.startsWith('\n')
+    
+    const spaceBefore = needsSpaceBefore ? " " : ""
+    const spaceAfter = needsSpaceAfter ? " " : ""
+    const insertText = spaceBefore + text + spaceAfter
+    
+    const newContent = beforeCursor + insertText + afterCursor
+    setContent(newContent)
+    
+    // Restore cursor position after text insertion
+    setTimeout(() => {
+      textarea.focus()
+      const newPosition = start + insertText.length
+      textarea.setSelectionRange(newPosition, newPosition)
+      
+      // Scroll into view on mobile
+      textarea.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      })
+    }, 0)
   }
 
   const handleCopyNote = () => {

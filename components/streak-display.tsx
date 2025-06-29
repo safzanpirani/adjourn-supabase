@@ -84,7 +84,7 @@ export function StreakDisplay({ currentStreak, maxStreak = 30 }: StreakDisplayPr
         <div className="absolute inset-0 pointer-events-none">
           {[...Array(20)].map((_, i) => (
             <div
-              key={i}
+              key={`confetti-${i}-${Date.now()}`}
               className="absolute w-2 h-2 animate-bounce"
               style={{
                 backgroundColor: "var(--color-accent)",
