@@ -152,29 +152,13 @@ function TodayPageContent() {
   }
 
   const updateContent = (value: string) => {
-    // Always update visible content
     setContent(value)
-
-    // If identical to the most recent history entry, do nothing
-    if (history[history.length - 1] === value) return
-
-    // Build a new history array trimmed to current pointer
-    const newHistory = [...history.slice(0, historyIndex + 1), value]
-
-    // Cap at 100 entries
-    const cappedHistory = newHistory.length > 100 ? newHistory.slice(newHistory.length - 100) : newHistory
-
-    setHistory(cappedHistory)
-    setHistoryIndex(cappedHistory.length - 1)
-  }
-
-  // Helpers that skip over consecutive duplicate states
-  const jumpToDistinctIndex = (start: number, step: number) => {
-    let idx = start
-    while (idx >= 0 && idx < history.length && history[idx] === content) {
-      idx += step
-    }
-    return idx
+    setHistory((prev) => {
+      const newHist = prev.slice(0, historyIndex + 1)
+      newHist.push(value)
+      return newHist.length > 100 ? newHist.slice(newHist.length - 100) : newHist
+    })
+    setHistoryIndex((idx) => idx + 1)
   }
 
   const handleVoiceTranscription = (text: string) => {
@@ -237,18 +221,18 @@ function TodayPageContent() {
   }
 
   const handleUndo = () => {
-    const target = jumpToDistinctIndex(historyIndex - 1, -1)
-    if (target >= 0) {
-      setHistoryIndex(target)
-      setContent(history[target])
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1
+      setHistoryIndex(newIndex)
+      setContent(history[newIndex])
     }
   }
 
   const handleRedo = () => {
-    const target = jumpToDistinctIndex(historyIndex + 1, 1)
-    if (target < history.length) {
-      setHistoryIndex(target)
-      setContent(history[target])
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1
+      setHistoryIndex(newIndex)
+      setContent(history[newIndex])
     }
   }
 
