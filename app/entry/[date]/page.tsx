@@ -27,7 +27,7 @@ function EntryPageContent() {
   
   const { entry, updateEntry, createEntry, deleteEntry: removeEntry, isUpdating, isLoading } = useEntry(date)
   const { photos, deletePhoto, isDeleting } = usePhotos(entry?.id || null)
-  const { uploadPhoto, uploadPhotos, isUploading } = usePhotoUpload()
+  const { uploadPhoto, isUploading } = usePhotoUpload()
   const [content, setContent] = useState("")
   const [wordCount, setWordCount] = useState(0)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
@@ -133,29 +133,20 @@ function EntryPageContent() {
 
     if (entry?.id && files.length > 0) {
       const fileArray = Array.from(files)
-      
-      // Check photo limit
+
       if (photos.length + fileArray.length > 6) {
         alert(`You can only add ${6 - photos.length} more photos. Maximum 6 photos per entry.`)
         return
       }
 
-      try {
-        if (fileArray.length === 1) {
-          await uploadPhoto({ 
-            file: fileArray[0], 
-            entryId: entry.id,
-            caption: fileArray[0].name.split('.')[0]
-          })
-        } else {
-          await uploadPhotos({ 
-            files: fileArray, 
-            entryId: entry.id 
-          })
+      for (const file of fileArray) {
+        const defaultCaption = file.name.split('.')[0]
+        const caption = prompt("Enter caption for this photo", defaultCaption) || defaultCaption
+        try {
+          await uploadPhoto({ file, entryId: entry.id, caption })
+        } catch (err) {
+          console.error('Failed to upload photo:', err)
         }
-      } catch (error) {
-        console.error('Failed to upload photos:', error)
-        alert('Failed to upload photos. Please try again.')
       }
     }
   }

@@ -11,6 +11,9 @@ import { Bell, Moon, Type, Download, Share, Lock, HelpCircle, LogOut, Palette, S
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
 import { useTheme } from "@/components/theme-provider"
+import { supabase } from "@/lib/supabase"
+import { useRouter } from "next/navigation"
+import { toast } from "@/hooks/use-toast"
 
 export default function SettingsPage() {
   const {
@@ -25,6 +28,8 @@ export default function SettingsPage() {
     fontFamily,
     setFontFamily,
   } = useTheme()
+
+  const router = useRouter()
 
   const fontOptions = [
     { value: "ibm-plex-mono", label: "IBM Plex Mono" },
@@ -257,6 +262,15 @@ export default function SettingsPage() {
               <Button
                 variant="ghost"
                 className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                onClick={async () => {
+                  const { error } = await supabase.auth.signOut()
+                  if (error) {
+                    toast({ description: "Failed to sign out" })
+                  } else {
+                    router.push("/")
+                    router.refresh()
+                  }
+                }}
               >
                 <LogOut className="w-5 h-5 mr-3" />
                 <span className="font-mono">Sign Out</span>
