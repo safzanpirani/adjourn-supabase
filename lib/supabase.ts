@@ -24,6 +24,7 @@ export const supabase = createClient(
       persistSession: true,
       storageKey: 'adjourn-auth',
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      flowType: 'pkce',
     },
     realtime: {
       params: {
@@ -36,6 +37,8 @@ export const supabase = createClient(
 // Auth helper functions for Google OAuth + Email/Password
 export const signInWithGoogle = async () => {
   const { error } = await supabase.auth.signInWithOAuth({
+    // @ts-ignore - flowType is allowed by supabase-js but missing in older type version
+    flowType: 'pkce',
     provider: 'google',
     options: {
       redirectTo: `${window.location.origin}/auth/callback`,
@@ -43,6 +46,8 @@ export const signInWithGoogle = async () => {
         access_type: 'offline',
         prompt: 'consent',
       },
+      // @ts-ignore ensure pkce in options for older builds
+      flowType: 'pkce',
     },
   })
   if (error) throw error

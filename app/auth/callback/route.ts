@@ -3,7 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 
 // Server-side Supabase client for auth callback
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // Using anon key for now
+
+// Use the Service Role key on the server for exchanging the PKCE auth code.
+// Falls back to anon key for local dev where service key may be unavailable.
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url)
