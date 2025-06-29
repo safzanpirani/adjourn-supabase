@@ -25,6 +25,7 @@ export const supabase = createClient(
       storageKey: 'adjourn-auth',
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
       flowType: 'pkce',
+      detectSessionInUrl: true,
     },
     realtime: {
       params: {
