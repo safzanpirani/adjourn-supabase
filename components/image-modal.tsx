@@ -6,12 +6,7 @@ import { useState } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { X, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
-
-interface Photo {
-  id: number
-  src: string
-  caption: string
-}
+import type { Photo } from "@/types/database"
 
 interface ImageModalProps {
   photos: Photo[]
@@ -107,16 +102,17 @@ export function ImageModal({ photos, initialIndex, isOpen, onClose, onDeletePhot
         {/* Image */}
         <div className="relative">
           <Image
-            src={currentPhoto.src || "/placeholder.svg"}
-            alt={currentPhoto.caption}
+            src={currentPhoto.url || "/placeholder.svg"}
+            alt={currentPhoto.caption || "Photo"}
             width={800}
             height={600}
             className="max-w-full max-h-[80vh] object-contain rounded-lg"
+            sizes="800px"
           />
 
           {/* Caption */}
           <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white p-4 rounded-b-lg">
-            <p className="font-mono text-sm text-center">{currentPhoto.caption}</p>
+            <p className="font-mono text-sm text-center">{currentPhoto.caption || "Untitled"}</p>
             <p className="font-mono text-xs text-center text-white/70 mt-1">
               {currentIndex + 1} of {photos.length}
             </p>

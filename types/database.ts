@@ -2,164 +2,155 @@
 export interface Database {
   public: {
     Tables: {
-      journals: {
+      profiles: {
         Row: {
           id: string
-          user_id: string
-          name: string
-          description: string | null
+          email: string | null
+          full_name: string | null
+          avatar_url: string | null
+          timezone: string | null
           created_at: string
           updated_at: string
-          last_accessed_at: string
         }
         Insert: {
-          id?: string
-          user_id: string
-          name: string
-          description?: string | null
+          id: string
+          email?: string | null
+          full_name?: string | null
+          avatar_url?: string | null
+          timezone?: string | null
           created_at?: string
           updated_at?: string
-          last_accessed_at?: string
         }
         Update: {
           id?: string
-          user_id?: string
-          name?: string
-          description?: string | null
+          email?: string | null
+          full_name?: string | null
+          avatar_url?: string | null
+          timezone?: string | null
           created_at?: string
           updated_at?: string
-          last_accessed_at?: string
         }
       }
       entries: {
         Row: {
           id: string
           user_id: string
-          journal_id: string
-          title: string | null
-          content: string
-          date_key: string // YYYY-MM-DD format for efficient indexing
-          word_count: number
+          date: string // DATE format YYYY-MM-DD
+          content: string | null
+          mood: number | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          journal_id: string
-          title?: string | null
-          content: string
-          date_key: string
-          word_count?: number
+          date: string
+          content?: string | null
+          mood?: number | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           user_id?: string
-          journal_id?: string
-          title?: string | null
-          content?: string
-          date_key?: string
-          word_count?: number
+          date?: string
+          content?: string | null
+          mood?: number | null
           created_at?: string
           updated_at?: string
         }
       }
-      images: {
+      photos: {
         Row: {
           id: string
-          entry_id: string
           user_id: string
-          storage_path: string
-          filename: string
-          display_order: number
+          entry_id: string
+          url: string
+          caption: string | null
+          width: number | null
+          height: number | null
+          file_size: number | null
           created_at: string
         }
         Insert: {
           id?: string
-          entry_id: string
           user_id: string
-          storage_path: string
-          filename: string
-          display_order?: number
+          entry_id: string
+          url: string
+          caption?: string | null
+          width?: number | null
+          height?: number | null
+          file_size?: number | null
           created_at?: string
         }
         Update: {
           id?: string
+          user_id?: string
           entry_id?: string
-          user_id?: string
-          storage_path?: string
-          filename?: string
-          display_order?: number
+          url?: string
+          caption?: string | null
+          width?: number | null
+          height?: number | null
+          file_size?: number | null
           created_at?: string
         }
       }
-      streaks: {
+      ai_conversations: {
         Row: {
           id: string
           user_id: string
-          current_streak: number
-          longest_streak: number
-          last_entry_date: string
+          entry_id: string
+          messages: any // JSONB
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          current_streak?: number
-          longest_streak?: number
-          last_entry_date?: string
+          entry_id: string
+          messages?: any
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           user_id?: string
-          current_streak?: number
-          longest_streak?: number
-          last_entry_date?: string
+          entry_id?: string
+          messages?: any
           created_at?: string
           updated_at?: string
         }
       }
-      user_preferences: {
+      voice_recordings: {
         Row: {
+          id: string
           user_id: string
-          theme: 'light' | 'dark' | 'sepia'
-          font_family: string
-          font_size: number
-          sound_enabled: boolean
-          haptic_enabled: boolean
-          daily_prompts_enabled: boolean
-          default_journal_id: string | null
+          entry_id: string
+          url: string
+          duration: number | null
+          file_size: number | null
+          transcription: string | null
           created_at: string
-          updated_at: string
         }
         Insert: {
+          id?: string
           user_id: string
-          theme?: 'light' | 'dark' | 'sepia'
-          font_family?: string
-          font_size?: number
-          sound_enabled?: boolean
-          haptic_enabled?: boolean
-          daily_prompts_enabled?: boolean
-          default_journal_id?: string | null
+          entry_id: string
+          url: string
+          duration?: number | null
+          file_size?: number | null
+          transcription?: string | null
           created_at?: string
-          updated_at?: string
         }
         Update: {
+          id?: string
           user_id?: string
-          theme?: 'light' | 'dark' | 'sepia'
-          font_family?: string
-          font_size?: number
-          sound_enabled?: boolean
-          haptic_enabled?: boolean
-          daily_prompts_enabled?: boolean
-          default_journal_id?: string | null
+          entry_id?: string
+          url?: string
+          duration?: number | null
+          file_size?: number | null
+          transcription?: string | null
           created_at?: string
-          updated_at?: string
         }
       }
     }
@@ -176,15 +167,15 @@ export interface Database {
 }
 
 // Utility types for components
-export type Journal = Database['public']['Tables']['journals']['Row']
+export type Profile = Database['public']['Tables']['profiles']['Row']
 export type Entry = Database['public']['Tables']['entries']['Row']
-export type Image = Database['public']['Tables']['images']['Row']
-export type Streak = Database['public']['Tables']['streaks']['Row']
-export type UserPreferences = Database['public']['Tables']['user_preferences']['Row']
+export type Photo = Database['public']['Tables']['photos']['Row']
+export type AIConversation = Database['public']['Tables']['ai_conversations']['Row']
+export type VoiceRecording = Database['public']['Tables']['voice_recordings']['Row']
 
 // Egress-optimized partial types for listings
-export type EntryListItem = Pick<Entry, 'id' | 'title' | 'date_key' | 'word_count' | 'updated_at'>
-export type JournalListItem = Pick<Journal, 'id' | 'name' | 'last_accessed_at'>
+export type EntryListItem = Pick<Entry, 'id' | 'date' | 'content' | 'updated_at'>
+export type PhotoListItem = Pick<Photo, 'id' | 'url' | 'caption' | 'created_at'>
 
 // Helper for today's date key
 export const getTodayDateKey = (): string => {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Camera, Bold, Italic, List, Undo, Redo, Sparkles } from "lucide-react"
+import { Camera, Bold, Italic, List, Undo, Redo, Sparkles, Upload } from "lucide-react"
 import { PolaroidGallery } from "@/components/polaroid-gallery"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { DesktopSidebar } from "@/components/desktop-sidebar"
@@ -13,18 +13,20 @@ import { AuthGuard } from "@/components/auth-guard"
 import { useTheme } from "@/components/theme-provider"
 import { useRouter } from "next/navigation"
 import { useTodayEntry } from "@/hooks/useOptimizedHooks"
+import { usePhotos } from "@/hooks/usePhotos"
+import { usePhotoUpload } from "@/hooks/usePhotoUpload"
 
 function TodayPageContent() {
   const router = useRouter()
   const { entry, updateEntry, createEntry, isUpdating, isLoading } = useTodayEntry()
+  const { photos, deletePhoto, isDeleting } = usePhotos(entry?.id || null)
+  const { uploadPhoto, uploadPhotos, isUploading } = usePhotoUpload()
   const [content, setContent] = useState("")
   const [wordCount, setWordCount] = useState(0)
-  const [photos, setPhotos] = useState([
-    { id: 1, src: "/placeholder.svg?height=200&width=200", caption: "Morning coffee" },
-    { id: 2, src: "/placeholder.svg?height=200&width=200", caption: "Sunset walk" },
-  ])
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { fontSize } = useTheme()
 
   // Initialize content when entry loads
@@ -97,22 +99,55 @@ function TodayPageContent() {
     })
   }
 
+  const handleFileSelect = async (files: FileList) => {
+    if (!entry?.id) {
+      // Create entry first if it doesn't exist
+      if (content.trim()) {
+        await createEntry({ content: content.trim() })
+      } else {
+        await createEntry({ content: "New entry" })
+      }
+    }
+
+    if (entry?.id && files.length > 0) {
+      const fileArray = Array.from(files)
+      
+      // Check photo limit
+      if (photos.length + fileArray.length > 6) {
+        alert(`You can only add ${6 - photos.length} more photos. Maximum 6 photos per entry.`)
+        return
+      }
+
+      try {
+        if (fileArray.length === 1) {
+          await uploadPhoto({ 
+            file: fileArray[0], 
+            entryId: entry.id,
+            caption: fileArray[0].name.split('.')[0]
+          })
+        } else {
+          await uploadPhotos({ 
+            files: fileArray, 
+            entryId: entry.id 
+          })
+        }
+      } catch (error) {
+        console.error('Failed to upload photos:', error)
+        alert('Failed to upload photos. Please try again.')
+      }
+    }
+  }
+
   const handleAddPhoto = () => {
     if (photos.length >= 6) {
       alert("Maximum 6 photos allowed per entry")
       return
     }
-
-    const newPhoto = {
-      id: Date.now(), // Use timestamp for unique ID
-      src: "/placeholder.svg?height=200&width=200",
-      caption: "New memory",
-    }
-    setPhotos([...photos, newPhoto])
+    fileInputRef.current?.click()
   }
 
-  const handleDeletePhoto = (photoId: number) => {
-    setPhotos(photos.filter((photo) => photo.id !== photoId))
+  const handleDeletePhoto = (photoId: string) => {
+    deletePhoto(photoId)
   }
 
   const handleVoiceTranscription = (text: string) => {
@@ -127,7 +162,6 @@ function TodayPageContent() {
   const handleDeleteNote = () => {
     if (confirm("Are you sure you want to delete this note?")) {
       setContent("")
-      setPhotos([])
     }
   }
 
@@ -146,8 +180,29 @@ function TodayPageContent() {
     console.log(`Format: ${type}`)
   }
 
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFileSelect(files)
+    }
+  }
+
   const getSaveStatus = () => {
-    if (isUpdating) return "Saving..."
+    if (isUpdating || isUploading) return "Saving..."
     if (lastSaved) return `✓ Saved ${lastSaved.toLocaleTimeString()}`
     if (content.trim() && !entry) return "Creating..."
     return "✓ Auto-saved"
@@ -166,7 +221,14 @@ function TodayPageContent() {
   }
 
   return (
-    <div className="flex min-h-[100dvh] bg-[var(--color-background)]">
+    <div 
+      className={`flex min-h-[100dvh] bg-[var(--color-background)] ${
+        isDragOver ? "bg-blue-50 dark:bg-blue-950" : ""
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <DesktopSidebar currentPage="today" />
 
       <div className="flex-1 flex flex-col">
@@ -222,6 +284,16 @@ function TodayPageContent() {
           <div className="text-xs font-mono text-[var(--color-accent)] opacity-75">{getSaveStatus()}</div>
         </div>
 
+        {/* Drag overlay */}
+        {isDragOver && (
+          <div className="fixed inset-0 bg-blue-500/20 border-4 border-dashed border-blue-500 z-10 flex items-center justify-center">
+            <div className="bg-blue-500 text-white px-6 py-3 rounded-lg font-mono">
+              <Upload className="w-6 h-6 mx-auto mb-2" />
+              Drop photos here to upload
+            </div>
+          </div>
+        )}
+
         {/* Editor */}
         <main className="flex-1 px-4 pb-4">
           <textarea
@@ -240,17 +312,39 @@ function TodayPageContent() {
         {/* Polaroid Gallery */}
         {photos.length > 0 && (
           <div className="px-4 pb-4">
-            <PolaroidGallery photos={photos} onDeletePhoto={handleDeletePhoto} />
+            <PolaroidGallery 
+              photos={photos} 
+              onDeletePhoto={handleDeletePhoto}
+              isDeleting={isDeleting}
+            />
           </div>
         )}
 
-        {/* Floating Add Photo Button - Better positioning */}
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => e.target.files && handleFileSelect(e.target.files)}
+        />
+
+        {/* Floating Add Photo Button */}
         <Button
           onClick={handleAddPhoto}
-          className="fixed bottom-36 md:bottom-8 right-4 h-14 w-14 rounded-full bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90 shadow-lg z-10"
-          disabled={photos.length >= 6}
+          className={`fixed bottom-36 md:bottom-8 right-4 h-14 w-14 rounded-full shadow-lg z-10 transition-all ${
+            isUploading 
+              ? "bg-gray-400 cursor-not-allowed" 
+              : "bg-[var(--color-primary)] hover:bg-[var(--color-primary)]/90"
+          }`}
+          disabled={photos.length >= 6 || isUploading}
         >
-          <Camera className="w-6 h-6 text-white" />
+          {isUploading ? (
+            <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <Camera className="w-6 h-6 text-white" />
+          )}
         </Button>
 
         {/* Mobile Formatting Toolbar */}

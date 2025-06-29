@@ -56,13 +56,17 @@ export const validateImageFile = (file: File): { valid: boolean; error?: string 
   // Check file type
   const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic']
   if (!validTypes.includes(file.type)) {
-    return { valid: false, error: 'Invalid file type. Please use JPEG, PNG, WebP, or HEIC.' }
+    return { valid: false, error: 'Invalid file type. Please use JPEG, PNG, WebP, or HEIC images.' }
   }
   
   // Check file size (10MB limit before compression)
   const maxSize = 10 * 1024 * 1024 // 10MB
   if (file.size > maxSize) {
-    return { valid: false, error: 'File too large. Please use images smaller than 10MB.' }
+    const fileSizeMB = (file.size / 1024 / 1024).toFixed(1)
+    return { 
+      valid: false, 
+      error: `File too large (${fileSizeMB}MB). Maximum size is 10MB. Try compressing your image first.` 
+    }
   }
   
   return { valid: true }

@@ -190,4 +190,95 @@ const { data } = await supabase
 4. **AI Deployment**: Deploy Muse AI Edge Functions
 5. **Testing**: Validate egress usage in development
 
-The frontend is now ready for the backend implementation phase! 
+The frontend is now ready for the backend implementation phase!
+
+## Prerequisites
+- Node.js 18+ and pnpm
+- Supabase account
+- Next.js 14 development environment
+
+## Database Setup
+
+1. **Run the main schema**:
+   ```sql
+   -- Copy and run supabase-schema.sql in your Supabase SQL editor
+   ```
+
+2. **Set up photo storage**:
+   ```sql
+   -- Copy and run supabase-storage-setup.sql in your Supabase SQL editor
+   ```
+
+## Environment Variables
+
+Create a `.env.local` file:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+## Installation
+
+```bash
+pnpm install
+pnpm dev
+```
+
+## Features
+
+### ✅ Completed
+- **Authentication**: Google OAuth + email/password
+- **Entry Management**: Full CRUD with auto-save
+- **Photo Upload & Storage**: Supabase Storage integration with compression
+- **Navigation**: Today, Calendar, Journals, Gallery, Muse, Settings
+- **Responsive Design**: Mobile-first with desktop support
+- **Streak Tracking**: Daily journaling streaks
+- **Database Integration**: Real-time data across all pages
+
+### 🔄 In Progress
+- Voice recordings with transcription
+- AI Muse conversations
+- Advanced text formatting
+- Photo editing capabilities
+
+### 📋 Planned
+- Export functionality
+- Advanced search
+- Tags and categories
+- Mood tracking visualization
+- Data analytics dashboard
+
+## Photo Storage
+
+The app uses Supabase Storage for photo management:
+- **Automatic compression**: Images compressed to WebP format with 1.5MB max size
+- **User isolation**: Photos stored in user-specific folders
+- **Drag & drop**: Native browser drag and drop support
+- **Multi-upload**: Select multiple photos at once
+- **Auto-cleanup**: Storage files deleted when database records are removed
+
+## Architecture
+
+- **Frontend**: Next.js 14 with App Router
+- **Backend**: Supabase (Auth, Database, Storage)
+- **State Management**: TanStack Query for server state
+- **Styling**: Tailwind CSS with CSS variables for theming
+- **Icons**: Lucide React
+- **UI Components**: Shadcn/ui
+
+## Database Schema
+
+- `profiles`: User profile data
+- `entries`: Journal entries (one per date per user)
+- `photos`: Photo metadata linked to entries
+- `ai_conversations`: Muse AI chat history
+- `voice_recordings`: Voice note metadata
+
+## Development Notes
+
+- Auto-save implemented with 1-second debounce
+- Mobile-first responsive design
+- Optimized for low egress costs
+- RLS policies ensure data isolation
+- Comprehensive error handling 
