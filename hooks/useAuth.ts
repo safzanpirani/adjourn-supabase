@@ -9,18 +9,30 @@ export const useAuth = () => {
   const { data: user, isLoading, error } = useQuery({
     queryKey: ['auth'],
     queryFn: async (): Promise<User | null> => {
-      // First try to get the current session
+      // Step 1: fetch session (local, no network)
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
       if (sessionError) {
         console.warn('Session error:', sessionError)
       }
-      
-      // Then get the user
-      const { data: { user }, error } = await supabase.auth.getUser()
-      if (error && error.message !== 'Invalid Refresh Token: Refresh Token Not Found') {
-        throw error
+
+      // If there is no session, we can immediately return null (no extra network call)
+      if (!session) return null
+
+      // Step 2: fetch user with a 5-second timeout to avoid indefinite loading
+      const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+      try {
+        const { data: { user }, error } = await Promise.race([
+          supabase.auth.getUser(),
+          timeoutPromise
+        ]) as any
+        if (error && error.message !== 'Invalid Refresh Token: Refresh Token Not Found') {
+          throw error
+        }
+        return user
+      } catch (err) {
+        console.error('getUser timed out or failed:', err)
+        return session.user ?? null
       }
-      return user
     },
     staleTime: 5 * 60 * 1000, // 5 minutes for auth data
     retry: (failureCount, error: any) => {
