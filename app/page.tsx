@@ -15,8 +15,9 @@ export default function LandingPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>("signin")
   const router = useRouter()
+  const [hasPersistedSession, setHasPersistedSession] = useState<boolean | null>(null)
   
   const { 
     user,
@@ -30,16 +31,34 @@ export default function LandingPage() {
     authError 
   } = useAuth()
 
+  // Early check for a persisted Supabase session to avoid flashing the login screen
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem('adjourn-auth') : null
+      setHasPersistedSession(!!raw)
+    } catch {
+      setHasPersistedSession(false)
+    }
+  }, [])
+
+  // Grace period: keep loader briefly while auth resolves when a session exists
+  useEffect(() => {
+    if (hasPersistedSession && !isAuthenticated) {
+      const t = setTimeout(() => setHasPersistedSession(false), 1500)
+      return () => clearTimeout(t)
+    }
+  }, [hasPersistedSession, isAuthenticated])
+
   // Redirect authenticated users to /today
   useEffect(() => {
     if (isAuthenticated && user) {
       console.log('User is authenticated, redirecting to /today:', user.email)
-      router.push('/today')
+      router.replace('/today')
     }
   }, [isAuthenticated, user, router])
 
-  // Show loading while checking auth state
-  if (isLoading) {
+  // Show loading while checking auth state or if a persisted session exists
+  if (isLoading || hasPersistedSession === null || hasPersistedSession) {
     return (
       <div className="min-h-[100dvh] bg-[#FAFAF8] flex flex-col items-center justify-center p-4">
         <div className="w-full max-w-sm space-y-8">
